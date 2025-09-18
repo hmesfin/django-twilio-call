@@ -1312,3 +1312,337 @@ class IVRFlowDetailView(APIView):
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+# Analytics Views
+class CallAnalyticsView(APIView):
+    """API view for call analytics."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Get call analytics.
+
+        Query params:
+            start_date: Start of date range (ISO format)
+            end_date: End of date range (ISO format)
+            queue_id: Filter by queue
+            agent_id: Filter by agent
+
+        """
+        from datetime import datetime
+
+        from ..services import analytics_service
+
+        # Parse dates
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+
+        if start_date:
+            start_date = datetime.fromisoformat(start_date)
+        if end_date:
+            end_date = datetime.fromisoformat(end_date)
+
+        # Get filters
+        queue_id = request.query_params.get("queue_id")
+        agent_id = request.query_params.get("agent_id")
+
+        try:
+            analytics = analytics_service.get_call_analytics(
+                start_date=start_date,
+                end_date=end_date,
+                queue_id=queue_id,
+                agent_id=agent_id,
+            )
+
+            return Response(analytics)
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class AgentAnalyticsView(APIView):
+    """API view for agent analytics."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Get agent analytics.
+
+        Query params:
+            agent_id: Specific agent or all
+            start_date: Start of date range (ISO format)
+            end_date: End of date range (ISO format)
+
+        """
+        from datetime import datetime
+
+        from ..services import analytics_service
+
+        # Parse dates
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+
+        if start_date:
+            start_date = datetime.fromisoformat(start_date)
+        if end_date:
+            end_date = datetime.fromisoformat(end_date)
+
+        agent_id = request.query_params.get("agent_id")
+
+        try:
+            analytics = analytics_service.get_agent_analytics(
+                agent_id=agent_id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+            return Response(analytics)
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class QueueAnalyticsView(APIView):
+    """API view for queue analytics."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Get queue analytics.
+
+        Query params:
+            queue_id: Specific queue or all
+            start_date: Start of date range (ISO format)
+            end_date: End of date range (ISO format)
+
+        """
+        from datetime import datetime
+
+        from ..services import analytics_service
+
+        # Parse dates
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+
+        if start_date:
+            start_date = datetime.fromisoformat(start_date)
+        if end_date:
+            end_date = datetime.fromisoformat(end_date)
+
+        queue_id = request.query_params.get("queue_id")
+
+        try:
+            analytics = analytics_service.get_queue_analytics(
+                queue_id=queue_id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+            return Response(analytics)
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class RealTimeMetricsView(APIView):
+    """API view for real-time metrics."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Get real-time operational metrics."""
+        from ..services import analytics_service
+
+        try:
+            metrics = analytics_service.get_real_time_metrics()
+            return Response(metrics)
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+# Reporting Views
+class ReportGenerationView(APIView):
+    """API view for report generation."""
+
+    permission_classes = [IsAuthenticated, IsSupervisor]
+
+    def post(self, request):
+        """Generate a report.
+
+        Request body:
+            report_type: Type of report
+            start_date: Start date (ISO format)
+            end_date: End date (ISO format)
+            format: Output format (csv, json, pdf, excel)
+            filters: Additional filters
+
+        """
+        from datetime import datetime
+
+        from ..services import reporting_service
+
+        report_type = request.data.get("report_type")
+        start_date = request.data.get("start_date")
+        end_date = request.data.get("end_date")
+        format = request.data.get("format", "csv")
+        filters = request.data.get("filters", {})
+
+        if not report_type or not start_date or not end_date:
+            return Response(
+                {"error": "report_type, start_date, and end_date are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Parse dates
+            start_date = datetime.fromisoformat(start_date)
+            end_date = datetime.fromisoformat(end_date)
+
+            # Generate report
+            report = reporting_service.generate_report(
+                report_type=report_type,
+                start_date=start_date,
+                end_date=end_date,
+                format=format,
+                filters=filters,
+            )
+
+            # Return appropriate response based on format
+            if format == "csv":
+                response = HttpResponse(
+                    report["data"],
+                    content_type="text/csv",
+                )
+                response["Content-Disposition"] = f'attachment; filename="report_{report_type}.csv"'
+                return response
+
+            elif format == "pdf":
+                response = HttpResponse(
+                    report["data"],
+                    content_type="application/pdf",
+                )
+                response["Content-Disposition"] = f'attachment; filename="report_{report_type}.pdf"'
+                return response
+
+            else:
+                return Response(report)
+
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ReportScheduleView(APIView):
+    """API view for scheduling reports."""
+
+    permission_classes = [IsAuthenticated, IsSupervisor]
+
+    def post(self, request):
+        """Schedule a recurring report.
+
+        Request body:
+            report_type: Type of report
+            schedule: Schedule (daily, weekly, monthly)
+            recipients: Email recipients list
+            filters: Report filters
+
+        """
+        from ..services import reporting_service
+
+        report_type = request.data.get("report_type")
+        schedule = request.data.get("schedule")
+        recipients = request.data.get("recipients", [])
+        filters = request.data.get("filters", {})
+
+        if not report_type or not schedule or not recipients:
+            return Response(
+                {"error": "report_type, schedule, and recipients are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            result = reporting_service.schedule_report(
+                report_type=report_type,
+                schedule=schedule,
+                recipients=recipients,
+                filters=filters,
+            )
+
+            return Response(result, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ReportEmailView(APIView):
+    """API view for emailing reports."""
+
+    permission_classes = [IsAuthenticated, IsSupervisor]
+
+    def post(self, request):
+        """Email a generated report.
+
+        Request body:
+            report_data: Generated report data
+            recipients: Email recipients list
+            subject: Email subject (optional)
+
+        """
+        from ..services import reporting_service
+
+        report_data = request.data.get("report_data")
+        recipients = request.data.get("recipients", [])
+        subject = request.data.get("subject")
+
+        if not report_data or not recipients:
+            return Response(
+                {"error": "report_data and recipients are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            success = reporting_service.email_report(
+                report_data=report_data,
+                recipients=recipients,
+                subject=subject,
+            )
+
+            if success:
+                return Response(
+                    {"success": True, "message": "Report emailed successfully"}
+                )
+            else:
+                return Response(
+                    {"success": False, "message": "Failed to email report"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

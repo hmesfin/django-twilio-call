@@ -5,9 +5,11 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     ActiveCallsView,
+    AgentAnalyticsView,
     AgentsSummaryView,
     AgentViewSet,
     AvailableAgentsView,
+    CallAnalyticsView,
     CallbackStatsView,
     CallbackView,
     CallViewSet,
@@ -17,9 +19,14 @@ from .views import (
     IVRFlowDetailView,
     IVRFlowView,
     PhoneNumberViewSet,
+    QueueAnalyticsView,
     QueueViewSet,
+    RealTimeMetricsView,
     RecordingComplianceView,
     RecordingView,
+    ReportEmailView,
+    ReportGenerationView,
+    ReportScheduleView,
 )
 from .webhooks.handlers import (
     IVRMenuView,
@@ -56,6 +63,15 @@ api_urlpatterns = [
     # IVR Flow endpoints
     path("ivr-flows/", IVRFlowView.as_view(), name="ivr-flows"),
     path("ivr-flows/<str:flow_name>/", IVRFlowDetailView.as_view(), name="ivr-flow-detail"),
+    # Analytics endpoints
+    path("analytics/calls/", CallAnalyticsView.as_view(), name="call-analytics"),
+    path("analytics/agents/", AgentAnalyticsView.as_view(), name="agent-analytics"),
+    path("analytics/queues/", QueueAnalyticsView.as_view(), name="queue-analytics"),
+    path("analytics/real-time/", RealTimeMetricsView.as_view(), name="real-time-metrics"),
+    # Reporting endpoints
+    path("reports/generate/", ReportGenerationView.as_view(), name="report-generate"),
+    path("reports/schedule/", ReportScheduleView.as_view(), name="report-schedule"),
+    path("reports/email/", ReportEmailView.as_view(), name="report-email"),
 ]
 
 # Webhook URLs
