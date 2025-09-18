@@ -117,6 +117,8 @@ class QueueService:
             Routed Call object or None if no routing occurred
         """
         try:
+            from .routing_service import routing_service
+
             queue = Queue.objects.get(id=queue_id)
 
             if not queue.is_active:
@@ -127,14 +129,14 @@ class QueueService:
             if not next_call:
                 return None
 
-            # Find available agent
-            agent = self._find_available_agent(queue, next_call)
-            if not agent:
-                logger.debug(f"No available agent for queue {queue.name}")
-                return None
+            # Use advanced routing service
+            agent = routing_service.route_call(next_call, queue)
+            if agent:
+                logger.info(f"Call {next_call.twilio_sid} routed to agent {agent.extension}")
+                return next_call
 
-            # Assign call to agent
-            return self._assign_call_to_agent(next_call, agent, queue)
+            logger.debug(f"No available agent for queue {queue.name}")
+            return None
 
         except Queue.DoesNotExist:
             logger.error(f"Queue {queue_id} not found")
