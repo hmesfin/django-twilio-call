@@ -34,7 +34,9 @@ ENABLE_CONFERENCE = getattr(settings, "ENABLE_CONFERENCE", True)
 # Queue configuration
 MAX_QUEUE_SIZE = getattr(settings, "MAX_QUEUE_SIZE", 100)
 DEFAULT_QUEUE_TIMEOUT = getattr(settings, "DEFAULT_QUEUE_TIMEOUT", 300)
-DEFAULT_HOLD_MUSIC_URL = getattr(settings, "DEFAULT_HOLD_MUSIC_URL", "http://com.twilio.music.classical.s3.amazonaws.com/ith_brahms-116-4.mp3")
+DEFAULT_HOLD_MUSIC_URL = getattr(
+    settings, "DEFAULT_HOLD_MUSIC_URL", "http://com.twilio.music.classical.s3.amazonaws.com/ith_brahms-116-4.mp3"
+)
 
 # Agent configuration
 DEFAULT_AGENT_MAX_CONCURRENT_CALLS = getattr(settings, "DEFAULT_AGENT_MAX_CONCURRENT_CALLS", 1)
@@ -75,9 +77,7 @@ def validate_settings():
         errors.append("Either TWILIO_PHONE_NUMBER or DEFAULT_CALLER_ID is required")
 
     if errors:
-        raise ImproperlyConfigured(
-            f"Django-Twilio-Call configuration errors: {', '.join(errors)}"
-        )
+        raise ImproperlyConfigured(f"Django-Twilio-Call configuration errors: {', '.join(errors)}")
 
 
 # Validate settings on import (can be disabled for testing)

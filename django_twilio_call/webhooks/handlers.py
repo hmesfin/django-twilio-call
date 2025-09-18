@@ -86,7 +86,7 @@ class TwiMLResponse:
     ) -> VoiceResponse:
         """Generate TwiML to place caller in queue."""
         response = VoiceResponse()
-        response.say(f"Please wait while we connect you to the next available agent.")
+        response.say("Please wait while we connect you to the next available agent.")
 
         enqueue_params = {"wait_url": wait_url} if wait_url else {}
         response.enqueue(queue_name, **enqueue_params)
@@ -185,9 +185,7 @@ class VoiceWebhookView(BaseWebhookView):
 
         except Exception as e:
             logger.error(f"Error handling incoming call: {e}")
-            response = TwiMLResponse.say(
-                "We're experiencing technical difficulties. Please try again later."
-            )
+            response = TwiMLResponse.say("We're experiencing technical difficulties. Please try again later.")
             return HttpResponse(str(response), content_type="text/xml")
 
     def handle_call_in_progress(self, data: Dict[str, Any]) -> HttpResponse:
@@ -219,9 +217,7 @@ class VoiceWebhookView(BaseWebhookView):
                 "no-answer": Call.Status.NO_ANSWER,
             }
 
-            call_status = status_map.get(
-                data.get("CallStatus", "").lower(), Call.Status.FAILED
-            )
+            call_status = status_map.get(data.get("CallStatus", "").lower(), Call.Status.FAILED)
 
             duration = int(data.get("Duration", 0))
             call_service.update_call_status(
@@ -247,10 +243,7 @@ class VoiceWebhookView(BaseWebhookView):
         base_url = TWILIO_WEBHOOK_URL.rstrip("/")
         response = TwiMLResponse.gather_input(
             prompt=(
-                "Welcome to our call center. "
-                "Press 1 for sales. "
-                "Press 2 for support. "
-                "Press 3 to speak with an operator."
+                "Welcome to our call center. Press 1 for sales. Press 2 for support. Press 3 to speak with an operator."
             ),
             action_url=f"{base_url}/webhooks/ivr/",
             num_digits=1,
@@ -310,9 +303,7 @@ class VoiceWebhookView(BaseWebhookView):
 
         except Exception as e:
             logger.error(f"Error adding call to queue: {e}")
-            response = TwiMLResponse.say(
-                "All agents are currently busy. Please try again later."
-            )
+            response = TwiMLResponse.say("All agents are currently busy. Please try again later.")
             return HttpResponse(str(response), content_type="text/xml")
 
 
@@ -483,9 +474,7 @@ class IVRMenuView(BaseWebhookView):
 
         except Exception as e:
             logger.error(f"Error routing to {department}: {e}")
-            response = TwiMLResponse.say(
-                f"All {department} agents are currently busy. Please try again later."
-            )
+            response = TwiMLResponse.say(f"All {department} agents are currently busy. Please try again later.")
             return HttpResponse(str(response), content_type="text/xml")
 
 
@@ -520,10 +509,7 @@ class QueueWaitView(BaseWebhookView):
             # Announce position every 30 seconds
             if int(queue_time) % 30 == 0 and position > 0:
                 minutes = estimated_wait // 60
-                response.say(
-                    f"You are number {position} in the queue. "
-                    f"Your estimated wait time is {minutes} minutes."
-                )
+                response.say(f"You are number {position} in the queue. Your estimated wait time is {minutes} minutes.")
 
             # Play hold music
             response.play(call.queue.music_url or DEFAULT_HOLD_MUSIC_URL)

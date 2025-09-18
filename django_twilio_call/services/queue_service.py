@@ -1,14 +1,13 @@
 """Queue service layer for managing call queues and routing."""
 
 import logging
-import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from django.db import models, transaction
 from django.db.models import Count, F, Q
 from django.utils import timezone
 
-from ..exceptions import AgentNotAvailableError, QueueServiceError
+from ..exceptions import QueueServiceError
 from ..models import Agent, Call, CallLog, Queue
 
 logger = logging.getLogger(__name__)
@@ -28,8 +27,7 @@ class QueueService:
         queue_id: int,
         priority: Optional[int] = None,
     ) -> Call:
-        """
-        Add a call to a queue.
+        """Add a call to a queue.
 
         Args:
             call: Call object to queue
@@ -41,6 +39,7 @@ class QueueService:
 
         Raises:
             QueueServiceError: If queue is full or inactive
+
         """
         try:
             queue = Queue.objects.get(id=queue_id)
@@ -81,20 +80,20 @@ class QueueService:
             return call
 
         except Queue.DoesNotExist:
-            raise QueueServiceError(f"Queue not found", queue_id=str(queue_id))
+            raise QueueServiceError("Queue not found", queue_id=str(queue_id))
         except Exception as e:
             logger.error(f"Failed to add call to queue: {e}")
-            raise QueueServiceError(f"Failed to add call to queue: {e}", queue_id=str(queue_id))
+            raise QueueServiceError(f"Failed to add call to queue: {e}", queue_id=str(queue_id))  # noqa: B904
 
     def remove_call_from_queue(self, call: Call) -> Call:
-        """
-        Remove a call from its queue.
+        """Remove a call from its queue.
 
         Args:
             call: Call object to remove from queue
 
         Returns:
             Updated Call object
+
         """
         if call.queue:
             queue_name = call.queue.name
@@ -107,14 +106,14 @@ class QueueService:
 
     @transaction.atomic
     def route_next_call(self, queue_id: int) -> Optional[Call]:
-        """
-        Route the next call in queue to an available agent.
+        """Route the next call in queue to an available agent.
 
         Args:
             queue_id: Queue ID to route from
 
         Returns:
             Routed Call object or None if no routing occurred
+
         """
         try:
             from .routing_service import routing_service
@@ -146,14 +145,14 @@ class QueueService:
             return None
 
     def _get_next_call(self, queue: Queue) -> Optional[Call]:
-        """
-        Get next call from queue based on routing strategy.
+        """Get next call from queue based on routing strategy.
 
         Args:
             queue: Queue object
 
         Returns:
             Next Call object or None
+
         """
         base_query = Call.objects.filter(
             queue=queue,
@@ -171,8 +170,7 @@ class QueueService:
             return base_query.order_by("created_at").first()
 
     def _find_available_agent(self, queue: Queue, call: Call) -> Optional[Agent]:
-        """
-        Find an available agent for the queue and call.
+        """Find an available agent for the queue and call.
 
         Args:
             queue: Queue object
@@ -180,19 +178,22 @@ class QueueService:
 
         Returns:
             Available Agent object or None
+
         """
         # Base query for available agents
-        agents_query = Agent.objects.filter(
-            queues=queue,
-            status=Agent.Status.AVAILABLE,
-            is_active=True,
-        ).annotate(
-            current_calls_count=Count(
-                "calls",
-                filter=Q(calls__status=Call.Status.IN_PROGRESS),
+        agents_query = (
+            Agent.objects.filter(
+                queues=queue,
+                status=Agent.Status.AVAILABLE,
+                is_active=True,
             )
-        ).filter(
-            current_calls_count__lt=F("max_concurrent_calls")
+            .annotate(
+                current_calls_count=Count(
+                    "calls",
+                    filter=Q(calls__status=Call.Status.IN_PROGRESS),
+                )
+            )
+            .filter(current_calls_count__lt=F("max_concurrent_calls"))
         )
 
         # Apply routing strategy
@@ -221,8 +222,7 @@ class QueueService:
 
     @transaction.atomic
     def _assign_call_to_agent(self, call: Call, agent: Agent, queue: Queue) -> Call:
-        """
-        Assign a call to an agent.
+        """Assign a call to an agent.
 
         Args:
             call: Call object
@@ -231,6 +231,7 @@ class QueueService:
 
         Returns:
             Updated Call object
+
         """
         # Update call
         call.agent = agent
@@ -264,14 +265,14 @@ class QueueService:
         return call
 
     def get_queue_statistics(self, queue_id: int) -> Dict[str, Any]:
-        """
-        Get statistics for a queue.
+        """Get statistics for a queue.
 
         Args:
             queue_id: Queue ID
 
         Returns:
             Dict containing queue statistics
+
         """
         try:
             queue = Queue.objects.get(id=queue_id)
@@ -315,38 +316,41 @@ class QueueService:
             }
 
         except Queue.DoesNotExist:
-            raise QueueServiceError(f"Queue not found", queue_id=str(queue_id))
+            raise QueueServiceError("Queue not found", queue_id=str(queue_id))
 
     def get_queue_position(self, call: Call) -> int:
-        """
-        Get a call's position in its queue.
+        """Get a call's position in its queue.
 
         Args:
             call: Call object
 
         Returns:
             Position in queue (1-based) or 0 if not in queue
+
         """
         if not call.queue or call.status != Call.Status.QUEUED:
             return 0
 
-        position = Call.objects.filter(
-            queue=call.queue,
-            status=Call.Status.QUEUED,
-            created_at__lt=call.created_at,
-        ).count() + 1
+        position = (
+            Call.objects.filter(
+                queue=call.queue,
+                status=Call.Status.QUEUED,
+                created_at__lt=call.created_at,
+            ).count()
+            + 1
+        )
 
         return position
 
     def estimate_wait_time(self, call: Call) -> int:
-        """
-        Estimate wait time for a call in queue.
+        """Estimate wait time for a call in queue.
 
         Args:
             call: Call object
 
         Returns:
             Estimated wait time in seconds
+
         """
         if not call.queue:
             return 0
@@ -356,18 +360,24 @@ class QueueService:
             return 0
 
         # Get average call duration for this queue
-        avg_duration = Call.objects.filter(
-            queue=call.queue,
-            status=Call.Status.COMPLETED,
-            duration__gt=0,
-        ).aggregate(avg_duration=models.Avg("duration"))["avg_duration"] or 180  # Default 3 minutes
+        avg_duration = (
+            Call.objects.filter(
+                queue=call.queue,
+                status=Call.Status.COMPLETED,
+                duration__gt=0,
+            ).aggregate(avg_duration=models.Avg("duration"))["avg_duration"]
+            or 180
+        )  # Default 3 minutes
 
         # Get number of available agents
-        available_agents = Agent.objects.filter(
-            queues=call.queue,
-            status=Agent.Status.AVAILABLE,
-            is_active=True,
-        ).count() or 1
+        available_agents = (
+            Agent.objects.filter(
+                queues=call.queue,
+                status=Agent.Status.AVAILABLE,
+                is_active=True,
+            ).count()
+            or 1
+        )
 
         # Simple estimation: position * average duration / available agents
         estimated_wait = int((position * avg_duration) / available_agents)
@@ -375,8 +385,7 @@ class QueueService:
         return estimated_wait
 
     def update_queue_priority(self, queue_id: int, priority: int) -> Queue:
-        """
-        Update queue priority.
+        """Update queue priority.
 
         Args:
             queue_id: Queue ID
@@ -384,6 +393,7 @@ class QueueService:
 
         Returns:
             Updated Queue object
+
         """
         try:
             queue = Queue.objects.get(id=queue_id)
@@ -394,7 +404,7 @@ class QueueService:
             return queue
 
         except Queue.DoesNotExist:
-            raise QueueServiceError(f"Queue not found", queue_id=str(queue_id))
+            raise QueueServiceError("Queue not found", queue_id=str(queue_id))
 
     def activate_queue(self, queue_id: int) -> Queue:
         """Activate a queue."""
@@ -405,8 +415,7 @@ class QueueService:
         return self._set_queue_status(queue_id, is_active=False)
 
     def _set_queue_status(self, queue_id: int, is_active: bool) -> Queue:
-        """
-        Set queue active status.
+        """Set queue active status.
 
         Args:
             queue_id: Queue ID
@@ -414,6 +423,7 @@ class QueueService:
 
         Returns:
             Updated Queue object
+
         """
         try:
             queue = Queue.objects.get(id=queue_id)
@@ -426,7 +436,7 @@ class QueueService:
             return queue
 
         except Queue.DoesNotExist:
-            raise QueueServiceError(f"Queue not found", queue_id=str(queue_id))
+            raise QueueServiceError("Queue not found", queue_id=str(queue_id))
 
 
 # Create service instance

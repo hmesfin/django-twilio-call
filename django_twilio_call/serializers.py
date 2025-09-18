@@ -1,7 +1,5 @@
 """DRF serializers for django-twilio-call models."""
 
-from typing import Any, Dict
-
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
@@ -239,9 +237,7 @@ class CallCreateSerializer(serializers.Serializer):
     fallback_url = serializers.URLField(required=False)
     status_callback = serializers.URLField(required=False)
     record = serializers.BooleanField(default=False, required=False)
-    recording_channels = serializers.ChoiceField(
-        choices=["mono", "dual"], default="mono", required=False
-    )
+    recording_channels = serializers.ChoiceField(choices=["mono", "dual"], default="mono", required=False)
     recording_status_callback = serializers.URLField(required=False)
     send_digits = serializers.CharField(max_length=255, required=False)
     timeout = serializers.IntegerField(min_value=1, max_value=600, default=30, required=False)
@@ -250,9 +246,7 @@ class CallCreateSerializer(serializers.Serializer):
     def validate(self, attrs):
         """Validate call creation data."""
         if not attrs.get("url") and not attrs.get("twiml"):
-            raise serializers.ValidationError(
-                "Either 'url' or 'twiml' must be provided for call instructions."
-            )
+            raise serializers.ValidationError("Either 'url' or 'twiml' must be provided for call instructions.")
         return attrs
 
 
@@ -266,9 +260,7 @@ class CallTransferSerializer(serializers.Serializer):
     def validate(self, attrs):
         """Validate transfer data."""
         if not any([attrs.get("to_number"), attrs.get("to_agent_id"), attrs.get("to_queue_id")]):
-            raise serializers.ValidationError(
-                "One of 'to_number', 'to_agent_id', or 'to_queue_id' must be provided."
-            )
+            raise serializers.ValidationError("One of 'to_number', 'to_agent_id', or 'to_queue_id' must be provided.")
         return attrs
 
 

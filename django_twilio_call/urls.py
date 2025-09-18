@@ -5,12 +5,21 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     ActiveCallsView,
+    AgentsSummaryView,
     AgentViewSet,
+    AvailableAgentsView,
     CallbackStatsView,
     CallbackView,
     CallViewSet,
+    ConferenceDetailView,
+    ConferenceParticipantView,
+    ConferenceView,
+    IVRFlowDetailView,
+    IVRFlowView,
     PhoneNumberViewSet,
     QueueViewSet,
+    RecordingComplianceView,
+    RecordingView,
 )
 from .webhooks.handlers import (
     IVRMenuView,
@@ -35,6 +44,18 @@ api_urlpatterns = [
     path("active-calls/", ActiveCallsView.as_view(), name="active-calls"),
     path("callbacks/", CallbackView.as_view(), name="callbacks"),
     path("callbacks/stats/", CallbackStatsView.as_view(), name="callback-stats"),
+    path("agents/available/", AvailableAgentsView.as_view(), name="available-agents"),
+    path("agents/summary/", AgentsSummaryView.as_view(), name="agents-summary"),
+    # Recording endpoints
+    path("recordings/", RecordingView.as_view(), name="recordings"),
+    path("recordings/compliance/", RecordingComplianceView.as_view(), name="recording-compliance"),
+    # Conference endpoints
+    path("conferences/", ConferenceView.as_view(), name="conferences"),
+    path("conferences/<str:conference_name>/", ConferenceDetailView.as_view(), name="conference-detail"),
+    path("conferences/<str:conference_name>/participants/", ConferenceParticipantView.as_view(), name="conference-participants"),
+    # IVR Flow endpoints
+    path("ivr-flows/", IVRFlowView.as_view(), name="ivr-flows"),
+    path("ivr-flows/<str:flow_name>/", IVRFlowDetailView.as_view(), name="ivr-flow-detail"),
 ]
 
 # Webhook URLs

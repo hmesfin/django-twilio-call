@@ -1,7 +1,6 @@
 """Call service layer for managing call operations."""
 
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from django.db import transaction
@@ -33,8 +32,7 @@ class CallService:
         metadata: Optional[Dict[str, Any]] = None,
         **twilio_params,
     ) -> Call:
-        """
-        Create an outbound call.
+        """Create an outbound call.
 
         Args:
             to_number: The phone number to call
@@ -51,6 +49,7 @@ class CallService:
 
         Raises:
             CallServiceError: If call creation fails
+
         """
         try:
             # Get default from number if not provided
@@ -113,8 +112,7 @@ class CallService:
         account_sid: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Call:
-        """
-        Handle an inbound call from webhook.
+        """Handle an inbound call from webhook.
 
         Args:
             call_sid: Twilio call SID
@@ -125,6 +123,7 @@ class CallService:
 
         Returns:
             Call object
+
         """
         try:
             # Check if call already exists
@@ -171,8 +170,7 @@ class CallService:
         duration: Optional[int] = None,
         **additional_fields,
     ) -> Call:
-        """
-        Update call status from webhook.
+        """Update call status from webhook.
 
         Args:
             call_sid: Twilio call SID
@@ -182,6 +180,7 @@ class CallService:
 
         Returns:
             Updated Call object
+
         """
         try:
             call = Call.objects.get(twilio_sid=call_sid)
@@ -228,14 +227,13 @@ class CallService:
 
         except Call.DoesNotExist:
             logger.error(f"Call {call_sid} not found")
-            raise CallServiceError(f"Call not found", call_sid=call_sid)
+            raise CallServiceError("Call not found", call_sid=call_sid)
         except Exception as e:
             logger.error(f"Failed to update call status: {e}")
             raise CallServiceError(f"Failed to update call status: {e}", call_sid=call_sid)
 
     def hold_call(self, call_sid: str, hold_music_url: Optional[str] = None) -> Call:
-        """
-        Put a call on hold.
+        """Put a call on hold.
 
         Args:
             call_sid: Twilio call SID
@@ -243,6 +241,7 @@ class CallService:
 
         Returns:
             Updated Call object
+
         """
         try:
             # Update call in Twilio
@@ -262,14 +261,13 @@ class CallService:
             return call
 
         except Call.DoesNotExist:
-            raise CallServiceError(f"Call not found", call_sid=call_sid)
+            raise CallServiceError("Call not found", call_sid=call_sid)
         except Exception as e:
             logger.error(f"Failed to hold call: {e}")
             raise CallServiceError(f"Failed to hold call: {e}", call_sid=call_sid)
 
     def resume_call(self, call_sid: str, resume_url: str) -> Call:
-        """
-        Resume a call from hold.
+        """Resume a call from hold.
 
         Args:
             call_sid: Twilio call SID
@@ -277,6 +275,7 @@ class CallService:
 
         Returns:
             Updated Call object
+
         """
         try:
             # Update call in Twilio
@@ -296,7 +295,7 @@ class CallService:
             return call
 
         except Call.DoesNotExist:
-            raise CallServiceError(f"Call not found", call_sid=call_sid)
+            raise CallServiceError("Call not found", call_sid=call_sid)
         except Exception as e:
             logger.error(f"Failed to resume call: {e}")
             raise CallServiceError(f"Failed to resume call: {e}", call_sid=call_sid)
@@ -309,8 +308,7 @@ class CallService:
         to_agent_id: Optional[int] = None,
         to_queue_id: Optional[int] = None,
     ) -> Call:
-        """
-        Transfer a call to another number, agent, or queue.
+        """Transfer a call to another number, agent, or queue.
 
         Args:
             call_sid: Twilio call SID
@@ -320,6 +318,7 @@ class CallService:
 
         Returns:
             Updated Call object
+
         """
         try:
             call = Call.objects.get(twilio_sid=call_sid)
@@ -368,24 +367,24 @@ class CallService:
             return call
 
         except Call.DoesNotExist:
-            raise CallServiceError(f"Call not found", call_sid=call_sid)
+            raise CallServiceError("Call not found", call_sid=call_sid)
         except Agent.DoesNotExist:
-            raise CallServiceError(f"Agent not found", call_sid=call_sid)
+            raise CallServiceError("Agent not found", call_sid=call_sid)
         except Queue.DoesNotExist:
-            raise CallServiceError(f"Queue not found", call_sid=call_sid)
+            raise CallServiceError("Queue not found", call_sid=call_sid)
         except Exception as e:
             logger.error(f"Failed to transfer call: {e}")
             raise CallServiceError(f"Failed to transfer call: {e}", call_sid=call_sid)
 
     def end_call(self, call_sid: str) -> Call:
-        """
-        End an active call.
+        """End an active call.
 
         Args:
             call_sid: Twilio call SID
 
         Returns:
             Updated Call object
+
         """
         try:
             # End call in Twilio
@@ -403,8 +402,7 @@ class CallService:
         agent_id: Optional[int] = None,
         queue_id: Optional[int] = None,
     ) -> List[Call]:
-        """
-        Get active calls, optionally filtered by agent or queue.
+        """Get active calls, optionally filtered by agent or queue.
 
         Args:
             agent_id: Optional agent ID filter
@@ -412,6 +410,7 @@ class CallService:
 
         Returns:
             List of active Call objects
+
         """
         filters = {
             "status__in": [

@@ -4,8 +4,7 @@ from rest_framework import permissions
 
 
 class IsAgentOrAdmin(permissions.BasePermission):
-    """
-    Custom permission to allow agents to access their own data.
+    """Custom permission to allow agents to access their own data.
     Admins can access all data.
     """
 
@@ -37,8 +36,7 @@ class IsAgentOrAdmin(permissions.BasePermission):
 
 
 class IsOwnerOrAdmin(permissions.BasePermission):
-    """
-    Custom permission to allow users to access their own data.
+    """Custom permission to allow users to access their own data.
     Admins can access all data.
     """
 
@@ -60,9 +58,7 @@ class IsOwnerOrAdmin(permissions.BasePermission):
 
 
 class CanManageCalls(permissions.BasePermission):
-    """
-    Permission to check if user can manage calls.
-    """
+    """Permission to check if user can manage calls."""
 
     def has_permission(self, request, view):
         """Check if user has permission to manage calls."""
@@ -82,9 +78,7 @@ class CanManageCalls(permissions.BasePermission):
 
 
 class CanAccessQueue(permissions.BasePermission):
-    """
-    Permission to check if user can access queue data.
-    """
+    """Permission to check if user can access queue data."""
 
     def has_permission(self, request, view):
         """Check if user has permission to access queues."""
@@ -113,8 +107,7 @@ class CanAccessQueue(permissions.BasePermission):
 
 
 class IsTwilioWebhook(permissions.BasePermission):
-    """
-    Permission to check if request is from Twilio webhook.
+    """Permission to check if request is from Twilio webhook.
     This should be used with webhook signature validation.
     """
 

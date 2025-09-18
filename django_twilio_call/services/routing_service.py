@@ -1,15 +1,13 @@
 """Advanced routing service for queue management."""
 
 import logging
-import random
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from django.db import models, transaction
-from django.db.models import Count, F, Q, Sum
+from django.db.models import Count, F, Q
 from django.utils import timezone
 
-from ..exceptions import AgentNotAvailableError, QueueServiceError
 from ..models import Agent, Call, CallLog, Queue
 
 logger = logging.getLogger(__name__)
@@ -19,8 +17,7 @@ class RoutingStrategy:
     """Base class for routing strategies."""
 
     def select_agent(self, queue: Queue, call: Call, available_agents: models.QuerySet) -> Optional[Agent]:
-        """
-        Select an agent based on the routing strategy.
+        """Select an agent based on the routing strategy.
 
         Args:
             queue: Queue object
@@ -29,6 +26,7 @@ class RoutingStrategy:
 
         Returns:
             Selected Agent or None
+
         """
         raise NotImplementedError
 
@@ -112,9 +110,7 @@ class PriorityBasedRoutingStrategy(RoutingStrategy):
 
         if priority == "high":
             # Route to agents with senior skill
-            senior_agents = available_agents.filter(
-                Q(skills__contains=["senior"]) | Q(skills__contains=["supervisor"])
-            )
+            senior_agents = available_agents.filter(Q(skills__contains=["senior"]) | Q(skills__contains=["supervisor"]))
             if senior_agents.exists():
                 return senior_agents.order_by("last_status_change").first()
 
@@ -129,11 +125,8 @@ class LoadBalancedRoutingStrategy(RoutingStrategy):
         """Select agent with most available capacity."""
         # Annotate with current active calls
         agents_with_capacity = available_agents.annotate(
-            active_calls=Count(
-                "calls",
-                filter=Q(calls__status=Call.Status.IN_PROGRESS)
-            ),
-            available_capacity=F("max_concurrent_calls") - F("active_calls")
+            active_calls=Count("calls", filter=Q(calls__status=Call.Status.IN_PROGRESS)),
+            available_capacity=F("max_concurrent_calls") - F("active_calls"),
         ).filter(available_capacity__gt=0)
 
         # Select agent with most available capacity
@@ -166,8 +159,7 @@ class AdvancedRoutingService:
         preferred_agent_id: Optional[int] = None,
         required_skills: Optional[List[str]] = None,
     ) -> Optional[Agent]:
-        """
-        Route a call to the best available agent.
+        """Route a call to the best available agent.
 
         Args:
             call: Call to route
@@ -177,6 +169,7 @@ class AdvancedRoutingService:
 
         Returns:
             Assigned Agent or None if no agent available
+
         """
         try:
             # Check if preferred agent is available
@@ -210,18 +203,10 @@ class AdvancedRoutingService:
     def _try_preferred_agent(self, agent_id: int, queue: Queue) -> Optional[Agent]:
         """Try to get preferred agent if available."""
         try:
-            agent = Agent.objects.get(
-                id=agent_id,
-                status=Agent.Status.AVAILABLE,
-                is_active=True,
-                queues=queue
-            )
+            agent = Agent.objects.get(id=agent_id, status=Agent.Status.AVAILABLE, is_active=True, queues=queue)
 
             # Check if agent has capacity
-            active_calls = Call.objects.filter(
-                agent=agent,
-                status=Call.Status.IN_PROGRESS
-            ).count()
+            active_calls = Call.objects.filter(agent=agent, status=Call.Status.IN_PROGRESS).count()
 
             if active_calls < agent.max_concurrent_calls:
                 return agent
@@ -231,24 +216,13 @@ class AdvancedRoutingService:
 
         return None
 
-    def _get_available_agents(
-        self,
-        queue: Queue,
-        required_skills: Optional[List[str]] = None
-    ) -> models.QuerySet:
+    def _get_available_agents(self, queue: Queue, required_skills: Optional[List[str]] = None) -> models.QuerySet:
         """Get available agents for the queue."""
         # Base query
-        agents = Agent.objects.filter(
-            queues=queue,
-            status=Agent.Status.AVAILABLE,
-            is_active=True
-        ).annotate(
-            current_calls_count=Count(
-                "calls",
-                filter=Q(calls__status=Call.Status.IN_PROGRESS)
-            )
-        ).filter(
-            current_calls_count__lt=F("max_concurrent_calls")
+        agents = (
+            Agent.objects.filter(queues=queue, status=Agent.Status.AVAILABLE, is_active=True)
+            .annotate(current_calls_count=Count("calls", filter=Q(calls__status=Call.Status.IN_PROGRESS)))
+            .filter(current_calls_count__lt=F("max_concurrent_calls"))
         )
 
         # Apply skill filtering if required
@@ -262,9 +236,7 @@ class AdvancedRoutingService:
         if queue.business_hours:
             if not self._is_within_business_hours(queue.business_hours):
                 # Only return on-call agents during off hours
-                agents = agents.filter(
-                    Q(skills__contains=["on_call"]) | Q(metadata__on_call=True)
-                )
+                agents = agents.filter(Q(skills__contains=["on_call"]) | Q(metadata__on_call=True))
 
         return agents
 
@@ -308,7 +280,7 @@ class AdvancedRoutingService:
                 "queue_name": queue.name,
                 "routing_strategy": queue.routing_strategy,
                 "queue_time": queue_time,
-            }
+            },
         )
 
         logger.info(f"Call {call.twilio_sid} assigned to agent {agent.extension}")
@@ -376,47 +348,24 @@ class AdvancedRoutingService:
         metrics = {
             "queue_id": queue.id,
             "queue_name": queue.name,
-            "current_size": Call.objects.filter(
-                queue=queue,
-                status=Call.Status.QUEUED
-            ).count(),
-
+            "current_size": Call.objects.filter(queue=queue, status=Call.Status.QUEUED).count(),
             "agents_available": Agent.objects.filter(
-                queues=queue,
-                status=Agent.Status.AVAILABLE,
-                is_active=True
+                queues=queue, status=Agent.Status.AVAILABLE, is_active=True
             ).count(),
-
-            "agents_busy": Agent.objects.filter(
-                queues=queue,
-                status=Agent.Status.BUSY,
-                is_active=True
-            ).count(),
-
+            "agents_busy": Agent.objects.filter(queues=queue, status=Agent.Status.BUSY, is_active=True).count(),
             "agents_total": queue.agents.filter(is_active=True).count(),
-
             "calls_completed_hour": Call.objects.filter(
-                queue=queue,
-                status=Call.Status.COMPLETED,
-                end_time__gte=hour_ago
+                queue=queue, status=Call.Status.COMPLETED, end_time__gte=hour_ago
             ).count(),
-
             "avg_wait_time": Call.objects.filter(
-                queue=queue,
-                status=Call.Status.COMPLETED,
-                queue_time__gt=0,
-                end_time__gte=hour_ago
-            ).aggregate(avg=models.Avg("queue_time"))["avg"] or 0,
-
+                queue=queue, status=Call.Status.COMPLETED, queue_time__gt=0, end_time__gte=hour_ago
+            ).aggregate(avg=models.Avg("queue_time"))["avg"]
+            or 0,
             "avg_handle_time": Call.objects.filter(
-                queue=queue,
-                status=Call.Status.COMPLETED,
-                duration__gt=0,
-                end_time__gte=hour_ago
-            ).aggregate(avg=models.Avg("duration"))["avg"] or 0,
-
+                queue=queue, status=Call.Status.COMPLETED, duration__gt=0, end_time__gte=hour_ago
+            ).aggregate(avg=models.Avg("duration"))["avg"]
+            or 0,
             "service_level": self._calculate_service_level(queue, hour_ago),
-
             "abandonment_rate": self._calculate_abandonment_rate(queue, hour_ago),
         }
 
@@ -427,9 +376,7 @@ class AdvancedRoutingService:
         threshold = queue.metadata.get("service_level_threshold", 30)  # seconds
 
         total_calls = Call.objects.filter(
-            queue=queue,
-            created_at__gte=since,
-            status__in=[Call.Status.COMPLETED, Call.Status.IN_PROGRESS]
+            queue=queue, created_at__gte=since, status__in=[Call.Status.COMPLETED, Call.Status.IN_PROGRESS]
         ).count()
 
         if total_calls == 0:
@@ -439,17 +386,14 @@ class AdvancedRoutingService:
             queue=queue,
             created_at__gte=since,
             queue_time__lte=threshold,
-            status__in=[Call.Status.COMPLETED, Call.Status.IN_PROGRESS]
+            status__in=[Call.Status.COMPLETED, Call.Status.IN_PROGRESS],
         ).count()
 
         return (answered_within_threshold / total_calls) * 100
 
     def _calculate_abandonment_rate(self, queue: Queue, since: datetime) -> float:
         """Calculate call abandonment rate."""
-        total_calls = Call.objects.filter(
-            queue=queue,
-            created_at__gte=since
-        ).count()
+        total_calls = Call.objects.filter(queue=queue, created_at__gte=since).count()
 
         if total_calls == 0:
             return 0.0
@@ -457,7 +401,7 @@ class AdvancedRoutingService:
         abandoned_calls = Call.objects.filter(
             queue=queue,
             created_at__gte=since,
-            status__in=[Call.Status.FAILED, Call.Status.NO_ANSWER, Call.Status.CANCELED]
+            status__in=[Call.Status.FAILED, Call.Status.NO_ANSWER, Call.Status.CANCELED],
         ).count()
 
         return (abandoned_calls / total_calls) * 100

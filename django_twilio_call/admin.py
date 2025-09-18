@@ -1,7 +1,6 @@
 """Django admin configurations for django-twilio-call models."""
 
 from django.contrib import admin
-from django.db.models import Count, Q
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 

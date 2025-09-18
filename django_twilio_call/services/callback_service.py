@@ -49,8 +49,7 @@ class CallbackService:
         preferred_time: Optional[datetime] = None,
         notes: Optional[str] = None,
     ) -> CallbackRequest:
-        """
-        Request a callback for a call.
+        """Request a callback for a call.
 
         Args:
             call: Original call requesting callback
@@ -59,6 +58,7 @@ class CallbackService:
 
         Returns:
             CallbackRequest object
+
         """
         # Create callback request
         callback = CallbackRequest(
@@ -98,8 +98,7 @@ class CallbackService:
         queue_id: Optional[int] = None,
         due_only: bool = False,
     ) -> List[CallbackRequest]:
-        """
-        Get pending callback requests.
+        """Get pending callback requests.
 
         Args:
             queue_id: Optional queue filter
@@ -107,6 +106,7 @@ class CallbackService:
 
         Returns:
             List of CallbackRequest objects
+
         """
         callbacks = [cb for cb in self.pending_callbacks if cb.status == "pending"]
 
@@ -115,11 +115,7 @@ class CallbackService:
 
         if due_only:
             now = timezone.now()
-            callbacks = [
-                cb
-                for cb in callbacks
-                if not cb.preferred_time or cb.preferred_time <= now
-            ]
+            callbacks = [cb for cb in callbacks if not cb.preferred_time or cb.preferred_time <= now]
 
         return sorted(callbacks, key=lambda x: x.priority == "high", reverse=True)
 
@@ -129,8 +125,7 @@ class CallbackService:
         callback: CallbackRequest,
         agent_id: Optional[int] = None,
     ) -> Optional[Call]:
-        """
-        Process a callback request by initiating an outbound call.
+        """Process a callback request by initiating an outbound call.
 
         Args:
             callback: CallbackRequest to process
@@ -138,6 +133,7 @@ class CallbackService:
 
         Returns:
             Created Call object or None if failed
+
         """
         from .call_service import call_service
 
@@ -193,14 +189,14 @@ class CallbackService:
             return None
 
     def schedule_callbacks(self, time_window_hours: int = 1) -> List[Call]:
-        """
-        Schedule and process callbacks within the time window.
+        """Schedule and process callbacks within the time window.
 
         Args:
             time_window_hours: Hours ahead to look for scheduled callbacks
 
         Returns:
             List of created Call objects
+
         """
         now = timezone.now()
         window_end = now + timedelta(hours=time_window_hours)
@@ -210,10 +206,7 @@ class CallbackService:
             cb
             for cb in self.pending_callbacks
             if cb.status == "pending"
-            and (
-                not cb.preferred_time
-                or (cb.preferred_time >= now and cb.preferred_time <= window_end)
-            )
+            and (not cb.preferred_time or (cb.preferred_time >= now and cb.preferred_time <= window_end))
         ]
 
         processed_calls = []
@@ -240,14 +233,14 @@ class CallbackService:
         return processed_calls
 
     def cancel_callback(self, phone_number: str) -> bool:
-        """
-        Cancel a pending callback.
+        """Cancel a pending callback.
 
         Args:
             phone_number: Phone number to cancel callback for
 
         Returns:
             True if cancelled, False if not found
+
         """
         for callback in self.pending_callbacks:
             if callback.phone_number == phone_number and callback.status == "pending":
@@ -259,14 +252,14 @@ class CallbackService:
         return False
 
     def get_callback_stats(self, queue_id: Optional[int] = None) -> Dict:
-        """
-        Get callback statistics.
+        """Get callback statistics.
 
         Args:
             queue_id: Optional queue filter
 
         Returns:
             Dictionary of callback statistics
+
         """
         callbacks = self.pending_callbacks
 
@@ -284,9 +277,7 @@ class CallbackService:
         pending_callbacks = [cb for cb in callbacks if cb.status == "pending"]
 
         if pending_callbacks:
-            total_wait = sum(
-                (now - cb.created_at).total_seconds() for cb in pending_callbacks
-            )
+            total_wait = sum((now - cb.created_at).total_seconds() for cb in pending_callbacks)
             avg_wait = total_wait / len(pending_callbacks)
         else:
             avg_wait = 0

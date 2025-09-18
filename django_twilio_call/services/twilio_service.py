@@ -3,7 +3,7 @@
 import logging
 import time
 from functools import wraps
-from typing import Any, Callable, Dict, Optional, TypeVar, Union
+from typing import Any, Callable, Dict, Optional, TypeVar
 
 from django.core.cache import cache
 from twilio.base.exceptions import TwilioException, TwilioRestException
@@ -18,7 +18,6 @@ from ..exceptions import (
     WebhookValidationError,
 )
 from ..settings import (
-    DJANGO_TWILIO_CACHE_BACKEND,
     DJANGO_TWILIO_CACHE_TIMEOUT,
     DJANGO_TWILIO_LOG_API_REQUESTS,
     TWILIO_ACCOUNT_SID,
@@ -169,8 +168,7 @@ class TwilioService:
         params: Dict[str, Any],
         signature: str,
     ) -> bool:
-        """
-        Validate Twilio webhook signature.
+        """Validate Twilio webhook signature.
 
         Args:
             url: The full URL of the webhook
@@ -182,6 +180,7 @@ class TwilioService:
 
         Raises:
             WebhookValidationError: If validation is required and fails
+
         """
         if not TWILIO_WEBHOOK_VALIDATE:
             return True
@@ -206,8 +205,7 @@ class TwilioService:
         twiml: Optional[str] = None,
         **kwargs,
     ) -> Dict[str, Any]:
-        """
-        Make an outbound call.
+        """Make an outbound call.
 
         Args:
             to: The phone number to call
@@ -218,6 +216,7 @@ class TwilioService:
 
         Returns:
             Dict containing call details
+
         """
         if DJANGO_TWILIO_LOG_API_REQUESTS:
             logger.info(f"Making call from {from_} to {to}")
@@ -252,14 +251,14 @@ class TwilioService:
 
     @exponential_backoff
     def get_call(self, call_sid: str) -> Dict[str, Any]:
-        """
-        Get call details.
+        """Get call details.
 
         Args:
             call_sid: The Twilio Call SID
 
         Returns:
             Dict containing call details
+
         """
         cache_key = f"twilio_call_{call_sid}"
         cached = cache.get(cache_key)
@@ -306,8 +305,7 @@ class TwilioService:
 
     @exponential_backoff
     def update_call(self, call_sid: str, **kwargs) -> Dict[str, Any]:
-        """
-        Update an active call.
+        """Update an active call.
 
         Args:
             call_sid: The Twilio Call SID
@@ -315,6 +313,7 @@ class TwilioService:
 
         Returns:
             Dict containing updated call details
+
         """
         if DJANGO_TWILIO_LOG_API_REQUESTS:
             logger.info(f"Updating call {call_sid} with params: {kwargs}")
@@ -341,21 +340,20 @@ class TwilioService:
 
     @exponential_backoff
     def end_call(self, call_sid: str) -> Dict[str, Any]:
-        """
-        End an active call.
+        """End an active call.
 
         Args:
             call_sid: The Twilio Call SID
 
         Returns:
             Dict containing call details
+
         """
         return self.update_call(call_sid, status="completed")
 
     @exponential_backoff
     def hold_call(self, call_sid: str, hold_url: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Put a call on hold.
+        """Put a call on hold.
 
         Args:
             call_sid: The Twilio Call SID
@@ -363,6 +361,7 @@ class TwilioService:
 
         Returns:
             Dict containing call details
+
         """
         from ..settings import DEFAULT_HOLD_MUSIC_URL
 
@@ -378,8 +377,7 @@ class TwilioService:
         to: str,
         from_: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Transfer a call to another number.
+        """Transfer a call to another number.
 
         Args:
             call_sid: The Twilio Call SID
@@ -388,6 +386,7 @@ class TwilioService:
 
         Returns:
             Dict containing call details
+
         """
         from ..settings import DEFAULT_CALLER_ID
 
@@ -398,11 +397,11 @@ class TwilioService:
 
     @exponential_backoff
     def list_phone_numbers(self) -> list:
-        """
-        List all phone numbers in the account.
+        """List all phone numbers in the account.
 
         Returns:
             List of phone number details
+
         """
         cache_key = "twilio_phone_numbers"
         cached = cache.get(cache_key)

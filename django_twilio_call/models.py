@@ -1,7 +1,6 @@
 """Database models for django-twilio-call package."""
 
 import uuid
-from typing import Optional
 
 from django.contrib.auth import get_user_model
 from django.core.validators import MinValueValidator, RegexValidator
@@ -648,3 +647,78 @@ class CallLog(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.event_type} - {self.call.twilio_sid} at {self.created_at}"
+
+
+class AgentActivity(TimeStampedModel):
+    """Model for tracking agent activities."""
+
+    class ActivityType(models.TextChoices):
+        """Agent activity type choices."""
+
+        LOGIN = "login", _("Login")
+        LOGOUT = "logout", _("Logout")
+        STATUS_CHANGE = "status_change", _("Status Change")
+        BREAK_START = "break_start", _("Break Start")
+        BREAK_END = "break_end", _("Break End")
+        CALL_START = "call_start", _("Call Start")
+        CALL_END = "call_end", _("Call End")
+        SKILL_UPDATE = "skill_update", _("Skill Update")
+        QUEUE_JOIN = "queue_join", _("Queue Join")
+        QUEUE_LEAVE = "queue_leave", _("Queue Leave")
+
+    public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
+    agent = models.ForeignKey(
+        Agent,
+        on_delete=models.CASCADE,
+        related_name="activities",
+    )
+    activity_type = models.CharField(
+        _("activity type"),
+        max_length=30,
+        choices=ActivityType.choices,
+        db_index=True,
+    )
+    description = models.TextField(
+        _("description"),
+        blank=True,
+    )
+    from_status = models.CharField(
+        _("from status"),
+        max_length=20,
+        blank=True,
+    )
+    to_status = models.CharField(
+        _("to status"),
+        max_length=20,
+        blank=True,
+    )
+    call = models.ForeignKey(
+        Call,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="agent_activities",
+    )
+    duration_seconds = models.IntegerField(
+        _("duration seconds"),
+        null=True,
+        blank=True,
+        help_text=_("Duration for break or call activities"),
+    )
+    metadata = models.JSONField(
+        _("metadata"),
+        default=dict,
+        blank=True,
+    )
+
+    class Meta:
+        verbose_name = _("Agent Activity")
+        verbose_name_plural = _("Agent Activities")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["agent", "activity_type"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.agent} - {self.activity_type} at {self.created_at}"
