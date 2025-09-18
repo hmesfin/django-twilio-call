@@ -1,0 +1,11 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+recursive-include django_twilio_call/templates *
+recursive-include django_twilio_call/static *
+recursive-include django_twilio_call/locale *
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude tests *
+recursive-exclude docker *
+recursive-exclude docs *
