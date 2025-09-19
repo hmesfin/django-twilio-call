@@ -467,13 +467,11 @@ class CallViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """Filter queryset based on user permissions."""
-        queryset = super().get_queryset().select_related(
-            "agent__user",
-            "queue",
-            "phone_number_used"
-        ).prefetch_related(
-            "recordings",
-            "logs"
+        queryset = (
+            super()
+            .get_queryset()
+            .select_related("agent__user", "queue", "phone_number_used")
+            .prefetch_related("recordings", "logs")
         )
 
         # Non-admins only see calls they're involved in
@@ -1639,9 +1637,7 @@ class ReportEmailView(APIView):
             )
 
             if success:
-                return Response(
-                    {"success": True, "message": "Report emailed successfully"}
-                )
+                return Response({"success": True, "message": "Report emailed successfully"})
             else:
                 return Response(
                     {"success": False, "message": "Failed to email report"},

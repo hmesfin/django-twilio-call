@@ -1,7 +1,19 @@
-"""Settings for django-twilio-call package."""
+"""Settings for django-twilio-call package.
 
+This module is deprecated in favor of the new conf.py module.
+It's kept for backwards compatibility but will be removed in a future version.
+"""
+
+import warnings
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+
+# Issue deprecation warning
+warnings.warn(
+    "django_twilio_call.settings is deprecated. Use django_twilio_call.conf instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 # Twilio configuration
 TWILIO_ACCOUNT_SID = getattr(settings, "TWILIO_ACCOUNT_SID", None)

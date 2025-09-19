@@ -1,5 +1,4 @@
-"""
-Agent management views for django-twilio-call.
+"""Agent management views for django-twilio-call.
 
 Handles agent status management, performance tracking, and authentication.
 """
@@ -16,7 +15,7 @@ from ..serializers import (
     AgentStatusUpdateSerializer,
     CallSerializer,
 )
-from .base import BaseCallCenterViewSet, AgentAccessMixin
+from .base import AgentAccessMixin, BaseCallCenterViewSet
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +52,7 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
 
     @action(detail=True, methods=["post"])
     def update_status(self, request, public_id=None):
-        """
-        Update agent status.
+        """Update agent status.
 
         Allowed statuses: available, busy, on_break, after_call_work, offline
         """
@@ -63,9 +61,7 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
 
         if not serializer.is_valid():
             return self.handle_error(
-                ValueError(serializer.errors),
-                "update agent status",
-                status_code=status.HTTP_400_BAD_REQUEST
+                ValueError(serializer.errors), "update agent status", status_code=status.HTTP_400_BAD_REQUEST
             )
 
         try:
@@ -81,15 +77,14 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
                     "status": agent.status,
                     "previous_status": old_status,
                 },
-                message=f"Status updated to {agent.get_status_display()}"
+                message=f"Status updated to {agent.get_status_display()}",
             )
         except Exception as e:
             return self.handle_error(e, f"update status for agent {agent.extension}")
 
     @action(detail=True, methods=["get"])
     def calls(self, request, public_id=None):
-        """
-        Get calls associated with this agent.
+        """Get calls associated with this agent.
 
         Query parameters:
         - status: Filter by call status
@@ -110,19 +105,15 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
         try:
             serializer = CallSerializer(queryset, many=True)
             return self.success_response(
-                data={
-                    "calls": serializer.data,
-                    "total": len(serializer.data)
-                },
-                message=f"Retrieved calls for agent {agent.extension}"
+                data={"calls": serializer.data, "total": len(serializer.data)},
+                message=f"Retrieved calls for agent {agent.extension}",
             )
         except Exception as e:
             return self.handle_error(e, f"get calls for agent {agent.extension}")
 
     @action(detail=True, methods=["post"])
     def login(self, request, public_id=None):
-        """
-        Log agent into the system.
+        """Log agent into the system.
 
         Sets agent status to available and records login activity.
         """
@@ -140,27 +131,26 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
 
             # Log the activity
             from ..models import AgentActivity
+
             AgentActivity.objects.create(
                 agent=agent,
                 activity_type=AgentActivity.ActivityType.LOGIN,
                 from_status=old_status,
                 to_status=agent.status,
-                description="Agent logged in via API"
+                description="Agent logged in via API",
             )
 
             logger.info(f"Agent {agent.extension} logged in")
 
             return self.success_response(
-                data=self.get_serializer(agent).data,
-                message=f"Agent {agent.extension} logged in successfully"
+                data=self.get_serializer(agent).data, message=f"Agent {agent.extension} logged in successfully"
             )
         except Exception as e:
             return self.handle_error(e, f"login agent {agent.extension}")
 
     @action(detail=True, methods=["post"])
     def logout(self, request, public_id=None):
-        """
-        Log agent out of the system.
+        """Log agent out of the system.
 
         Sets agent status to offline and records logout activity.
         """
@@ -178,27 +168,26 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
 
             # Log the activity
             from ..models import AgentActivity
+
             AgentActivity.objects.create(
                 agent=agent,
                 activity_type=AgentActivity.ActivityType.LOGOUT,
                 from_status=old_status,
                 to_status=agent.status,
-                description="Agent logged out via API"
+                description="Agent logged out via API",
             )
 
             logger.info(f"Agent {agent.extension} logged out")
 
             return self.success_response(
-                data=self.get_serializer(agent).data,
-                message=f"Agent {agent.extension} logged out successfully"
+                data=self.get_serializer(agent).data, message=f"Agent {agent.extension} logged out successfully"
             )
         except Exception as e:
             return self.handle_error(e, f"logout agent {agent.extension}")
 
     @action(detail=True, methods=["post"])
     def start_break(self, request, public_id=None):
-        """
-        Start agent break.
+        """Start agent break.
 
         Puts agent in break status and records break start time.
         """
@@ -215,25 +204,24 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
 
             # Log the activity
             from ..models import AgentActivity
+
             AgentActivity.objects.create(
                 agent=agent,
                 activity_type=AgentActivity.ActivityType.BREAK_START,
                 from_status=old_status,
                 to_status=agent.status,
-                description=f"Break started: {reason}"
+                description=f"Break started: {reason}",
             )
 
             return self.success_response(
-                data=self.get_serializer(agent).data,
-                message=f"Break started for agent {agent.extension}"
+                data=self.get_serializer(agent).data, message=f"Break started for agent {agent.extension}"
             )
         except Exception as e:
             return self.handle_error(e, f"start break for agent {agent.extension}")
 
     @action(detail=True, methods=["post"])
     def end_break(self, request, public_id=None):
-        """
-        End agent break.
+        """End agent break.
 
         Returns agent to available status and calculates break duration.
         """
@@ -245,12 +233,14 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
 
             # Calculate break duration
             from django.utils import timezone
+
             from ..models import AgentActivity
 
-            last_break = AgentActivity.objects.filter(
-                agent=agent,
-                activity_type=AgentActivity.ActivityType.BREAK_START
-            ).order_by('-created_at').first()
+            last_break = (
+                AgentActivity.objects.filter(agent=agent, activity_type=AgentActivity.ActivityType.BREAK_START)
+                .order_by("-created_at")
+                .first()
+            )
 
             break_duration = None
             if last_break:
@@ -267,23 +257,19 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
                 from_status=old_status,
                 to_status=agent.status,
                 duration_seconds=break_duration,
-                description="Break ended"
+                description="Break ended",
             )
 
             return self.success_response(
-                data={
-                    "agent": self.get_serializer(agent).data,
-                    "break_duration_seconds": break_duration
-                },
-                message=f"Break ended for agent {agent.extension}"
+                data={"agent": self.get_serializer(agent).data, "break_duration_seconds": break_duration},
+                message=f"Break ended for agent {agent.extension}",
             )
         except Exception as e:
             return self.handle_error(e, f"end break for agent {agent.extension}")
 
     @action(detail=True, methods=["post"])
     def update_skills(self, request, public_id=None):
-        """
-        Update agent skills.
+        """Update agent skills.
 
         Skills are used for skills-based routing.
         """
@@ -292,9 +278,7 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
 
         if not isinstance(skills, list):
             return self.handle_error(
-                ValueError("skills must be a list"),
-                "update agent skills",
-                status_code=status.HTTP_400_BAD_REQUEST
+                ValueError("skills must be a list"), "update agent skills", status_code=status.HTTP_400_BAD_REQUEST
             )
 
         try:
@@ -304,23 +288,22 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
 
             # Log the activity
             from ..models import AgentActivity
+
             AgentActivity.objects.create(
                 agent=agent,
                 activity_type=AgentActivity.ActivityType.SKILL_UPDATE,
-                description=f"Skills updated from {old_skills} to {skills}"
+                description=f"Skills updated from {old_skills} to {skills}",
             )
 
             return self.success_response(
-                data=self.get_serializer(agent).data,
-                message=f"Skills updated for agent {agent.extension}"
+                data=self.get_serializer(agent).data, message=f"Skills updated for agent {agent.extension}"
             )
         except Exception as e:
             return self.handle_error(e, f"update skills for agent {agent.extension}")
 
     @action(detail=True, methods=["get"])
     def performance(self, request, public_id=None):
-        """
-        Get agent performance metrics.
+        """Get agent performance metrics.
 
         Returns performance data including call volume, average handle time,
         and other key metrics.
@@ -334,20 +317,18 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
             performance_data = analytics_service.get_agent_performance(
                 agent.id,
                 start_date=request.query_params.get("start_date"),
-                end_date=request.query_params.get("end_date")
+                end_date=request.query_params.get("end_date"),
             )
 
             return self.success_response(
-                data=performance_data,
-                message=f"Performance metrics for agent {agent.extension}"
+                data=performance_data, message=f"Performance metrics for agent {agent.extension}"
             )
         except Exception as e:
             return self.handle_error(e, f"get performance for agent {agent.extension}")
 
     @action(detail=True, methods=["get"])
     def dashboard(self, request, public_id=None):
-        """
-        Get agent dashboard data.
+        """Get agent dashboard data.
 
         Returns real-time dashboard information including current status,
         active calls, queue statistics, and recent activity.
@@ -355,22 +336,16 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
         agent = self.get_object()
 
         try:
-            from django.db.models import Count, Q
             from ..models import Call
 
             # Current active calls
-            active_calls = Call.objects.filter(
-                agent=agent,
-                status__in=[Call.Status.RINGING, Call.Status.IN_PROGRESS]
-            )
+            active_calls = Call.objects.filter(agent=agent, status__in=[Call.Status.RINGING, Call.Status.IN_PROGRESS])
 
             # Today's call statistics
             from datetime import date
+
             today = date.today()
-            today_calls = Call.objects.filter(
-                agent=agent,
-                created_at__date=today
-            )
+            today_calls = Call.objects.filter(agent=agent, created_at__date=today)
 
             dashboard_data = {
                 "agent": self.get_serializer(agent).data,
@@ -378,19 +353,13 @@ class AgentViewSet(BaseCallCenterViewSet, AgentAccessMixin):
                 "today_stats": {
                     "total_calls": today_calls.count(),
                     "completed_calls": today_calls.filter(status=Call.Status.COMPLETED).count(),
-                    "average_duration": today_calls.aggregate(
-                        avg_duration=models.Avg("duration")
-                    )["avg_duration"] or 0,
+                    "average_duration": today_calls.aggregate(avg_duration=models.Avg("duration"))["avg_duration"] or 0,
                 },
                 "queue_assignments": [
-                    {"name": q.name, "priority": q.priority}
-                    for q in agent.queues.filter(is_active=True)
-                ]
+                    {"name": q.name, "priority": q.priority} for q in agent.queues.filter(is_active=True)
+                ],
             }
 
-            return self.success_response(
-                data=dashboard_data,
-                message=f"Dashboard data for agent {agent.extension}"
-            )
+            return self.success_response(data=dashboard_data, message=f"Dashboard data for agent {agent.extension}")
         except Exception as e:
             return self.handle_error(e, f"get dashboard for agent {agent.extension}")

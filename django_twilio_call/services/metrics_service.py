@@ -7,13 +7,12 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from django.core.mail import EmailMessage
-from django.db import models
 from django.db.models import Avg, Count, F, Max, Min, Q, Sum
-from django.template.loader import render_to_string
 from django.utils import timezone
 
+from ..models import Agent, Call, Queue
+from ..constants import DefaultValues, Limits
 from .base import BaseService, cache_result, log_execution
-from ..models import Agent, Call, CallLog, Queue
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +42,11 @@ class ReportFormat:
 class MetricsService(BaseService):
     """Unified service for analytics, metrics, and reporting."""
 
+    service_type = "metrics"
+
     def __init__(self):
         """Initialize metrics service."""
         super().__init__()
-        self.cache_timeout = 300  # 5 minutes cache
 
     # ===========================================
     # ANALYTICS METHODS (Real-time & Historical)
@@ -61,15 +61,16 @@ class MetricsService(BaseService):
 
         Returns:
             Task ID for the report generation job
-        """
-        from ..tasks import generate_daily_report, generate_weekly_report, generate_monthly_report
 
-        if report_type == 'daily':
-            task = generate_daily_report.delay(kwargs.get('date_str'))
-        elif report_type == 'weekly':
-            task = generate_weekly_report.delay(kwargs.get('week_start_str'))
-        elif report_type == 'monthly':
-            task = generate_monthly_report.delay(kwargs.get('year'), kwargs.get('month'))
+        """
+        from ..tasks import generate_daily_report, generate_monthly_report, generate_weekly_report
+
+        if report_type == "daily":
+            task = generate_daily_report.delay(kwargs.get("date_str"))
+        elif report_type == "weekly":
+            task = generate_weekly_report.delay(kwargs.get("week_start_str"))
+        elif report_type == "monthly":
+            task = generate_monthly_report.delay(kwargs.get("year"), kwargs.get("month"))
         else:
             raise ValueError(f"Unknown report type: {report_type}")
 
@@ -85,6 +86,7 @@ class MetricsService(BaseService):
 
         Returns:
             Task ID for the calculation job
+
         """
         from ..tasks import calculate_agent_metrics
 
@@ -92,7 +94,7 @@ class MetricsService(BaseService):
         logger.info(f"Scheduled agent metrics calculation for agent {agent_id}, task ID: {task.id}")
         return task.id
 
-    @cache_result(timeout=300, key_prefix="call_analytics")
+    @cache_result(service_type="analytics", key_prefix="call_analytics")
     @log_execution()
     def get_call_analytics(
         self,
@@ -111,12 +113,13 @@ class MetricsService(BaseService):
 
         Returns:
             Dict containing call metrics
+
         """
         # Default to last 30 days
         if not end_date:
             end_date = timezone.now()
         if not start_date:
-            start_date = end_date - timedelta(days=30)
+            start_date = end_date - timedelta(days=DefaultValues.DEFAULT_ANALYSIS_PERIOD_DAYS)
 
         # Use BaseService caching (decorator handles this now, but keeping for reference)
         # cache_key = self.get_cache_key("call_analytics", str(start_date), str(end_date), str(queue_id), str(agent_id))
@@ -185,6 +188,7 @@ class MetricsService(BaseService):
 
         Returns:
             Dict containing agent metrics
+
         """
         # Default to today
         if not end_date:
@@ -242,6 +246,7 @@ class MetricsService(BaseService):
 
         Returns:
             Dict containing queue metrics
+
         """
         # Default to today
         if not end_date:
@@ -281,6 +286,7 @@ class MetricsService(BaseService):
 
         Returns:
             Dict containing current metrics
+
         """
         # Check cache first
         cache_key = "real_time_metrics"
@@ -299,8 +305,8 @@ class MetricsService(BaseService):
         metrics = {
             "timestamp": timezone.now().isoformat(),
             "current_activity": {
-                "active_calls": call_status_counts['active_calls'],
-                "queued_calls": call_status_counts['queued_calls'],
+                "active_calls": call_status_counts["active_calls"],
+                "queued_calls": call_status_counts["queued_calls"],
                 "longest_wait_seconds": longest_wait.total_seconds() if longest_wait else 0,
             },
             "agents": self._format_agent_status_counts(agent_status_counts),
@@ -334,6 +340,7 @@ class MetricsService(BaseService):
 
         Returns:
             Dict with report data and metadata
+
         """
         filters = filters or {}
 
@@ -370,6 +377,7 @@ class MetricsService(BaseService):
 
         Returns:
             Schedule confirmation
+
         """
         return {
             "report_type": report_type,
@@ -395,6 +403,7 @@ class MetricsService(BaseService):
 
         Returns:
             Success status
+
         """
         if not subject:
             subject = f"Call Center Report - {report_data['report_type']}"
@@ -426,11 +435,7 @@ class MetricsService(BaseService):
 
     def _get_optimized_calls_query(self, start_date, end_date, queue_id=None, agent_id=None):
         """Get optimized calls query with select_related and filters."""
-        query = Call.objects.select_related(
-            'agent__user',
-            'queue',
-            'phone_number_used'
-        ).filter(
+        query = Call.objects.select_related("agent__user", "queue", "phone_number_used").filter(
             created_at__gte=start_date,
             created_at__lte=end_date,
         )
@@ -444,7 +449,7 @@ class MetricsService(BaseService):
 
     def _get_optimized_agents_query(self, agent_id=None):
         """Get optimized agents query."""
-        query = Agent.objects.select_related('user').prefetch_related('calls__queue')
+        query = Agent.objects.select_related("user").prefetch_related("calls__queue")
 
         if agent_id:
             return query.filter(id=agent_id)
@@ -453,7 +458,7 @@ class MetricsService(BaseService):
 
     def _get_optimized_queues_query(self, queue_id=None):
         """Get optimized queues query."""
-        query = Queue.objects.prefetch_related('agents__user')
+        query = Queue.objects.prefetch_related("agents__user")
 
         if queue_id:
             return query.filter(id=queue_id)
@@ -462,7 +467,7 @@ class MetricsService(BaseService):
 
     def _get_agent_calls_query(self, agent, start_date, end_date):
         """Get agent's calls with optimized query."""
-        return Call.objects.select_related('queue').filter(
+        return Call.objects.select_related("queue").filter(
             agent=agent,
             created_at__gte=start_date,
             created_at__lte=end_date,
@@ -474,7 +479,7 @@ class MetricsService(BaseService):
             total_calls=Count("id"),
             completed_calls=Count("id", filter=Q(status=Call.Status.COMPLETED)),
             abandoned_calls=Count("id", filter=Q(status=Call.Status.ABANDONED)),
-            failed_calls=Count("id", filter=Q(status=Call.Status.FAILED))
+            failed_calls=Count("id", filter=Q(status=Call.Status.FAILED)),
         )
 
     def _calculate_duration_metrics(self, calls_query):
@@ -521,32 +526,32 @@ class MetricsService(BaseService):
 
     def _calculate_abandonment_rate(self, volume_metrics):
         """Calculate abandonment rate."""
-        total = volume_metrics['total_calls']
-        abandoned = volume_metrics['abandoned_calls']
+        total = volume_metrics["total_calls"]
+        abandoned = volume_metrics["abandoned_calls"]
         return (abandoned / total * 100) if total > 0 else 0
 
     def _get_call_status_counts(self):
         """Get current call status counts with single query."""
         return Call.objects.aggregate(
-            active_calls=Count('id', filter=Q(status=Call.Status.IN_PROGRESS)),
-            queued_calls=Count('id', filter=Q(status=Call.Status.QUEUED))
+            active_calls=Count("id", filter=Q(status=Call.Status.IN_PROGRESS)),
+            queued_calls=Count("id", filter=Q(status=Call.Status.QUEUED)),
         )
 
     def _get_agent_status_counts(self):
         """Get agent status counts with single query."""
         return Agent.objects.filter(is_active=True).aggregate(
-            total_agents=Count('id'),
-            available_agents=Count('id', filter=Q(status=Agent.Status.AVAILABLE)),
-            busy_agents=Count('id', filter=Q(status=Agent.Status.BUSY)),
-            on_break_agents=Count('id', filter=Q(status=Agent.Status.ON_BREAK))
+            total_agents=Count("id"),
+            available_agents=Count("id", filter=Q(status=Agent.Status.AVAILABLE)),
+            busy_agents=Count("id", filter=Q(status=Agent.Status.BUSY)),
+            on_break_agents=Count("id", filter=Q(status=Agent.Status.ON_BREAK)),
         )
 
     def _format_agent_status_counts(self, counts):
         """Format agent status counts for response."""
-        total = counts['total_agents']
-        available = counts['available_agents']
-        busy = counts['busy_agents']
-        on_break = counts['on_break_agents']
+        total = counts["total_agents"]
+        available = counts["available_agents"]
+        busy = counts["busy_agents"]
+        on_break = counts["on_break_agents"]
 
         return {
             "total": total,
@@ -558,23 +563,19 @@ class MetricsService(BaseService):
 
     def _get_longest_wait(self):
         """Get longest queue wait time."""
-        return Call.objects.filter(
-            status=Call.Status.QUEUED
-        ).aggregate(
-            max_wait=Max(timezone.now() - F("created_at"))
-        )["max_wait"]
+        return Call.objects.filter(status=Call.Status.QUEUED).aggregate(max_wait=Max(timezone.now() - F("created_at")))[
+            "max_wait"
+        ]
 
     def _get_today_stats(self):
         """Get today's statistics with optimized single query."""
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        return Call.objects.filter(
-            created_at__gte=today_start
-        ).aggregate(
-            total_calls=Count('id'),
-            completed_calls=Count('id', filter=Q(status=Call.Status.COMPLETED)),
-            abandoned_calls=Count('id', filter=Q(status=Call.Status.ABANDONED)),
-            avg_duration=Avg('duration', filter=Q(status=Call.Status.COMPLETED)),
-            avg_queue_time=Avg('queue_time', filter=Q(status=Call.Status.COMPLETED))
+        return Call.objects.filter(created_at__gte=today_start).aggregate(
+            total_calls=Count("id"),
+            completed_calls=Count("id", filter=Q(status=Call.Status.COMPLETED)),
+            abandoned_calls=Count("id", filter=Q(status=Call.Status.ABANDONED)),
+            avg_duration=Avg("duration", filter=Q(status=Call.Status.COMPLETED)),
+            avg_queue_time=Avg("queue_time", filter=Q(status=Call.Status.COMPLETED)),
         )
 
     def _calculate_agent_metrics(self, agent, agent_calls, start_date, end_date):
@@ -589,8 +590,7 @@ class MetricsService(BaseService):
         # Transfer metrics
         transfers = agent_calls.filter(metadata__transferred=True).count()
         transfer_rate = (
-            (transfers / call_metrics["completed_calls"] * 100)
-            if call_metrics["completed_calls"] > 0 else 0
+            (transfers / call_metrics["completed_calls"] * 100) if call_metrics["completed_calls"] > 0 else 0
         )
 
         # Status time and occupancy
@@ -684,16 +684,14 @@ class MetricsService(BaseService):
                 "service_level": round(service_level, 2),
                 "service_level_threshold": sl_threshold,
                 "abandonment_rate": round(
-                    (metrics["abandoned_calls"] / metrics["total_calls"] * 100)
-                    if metrics["total_calls"] > 0 else 0, 2
+                    (metrics["abandoned_calls"] / metrics["total_calls"] * 100) if metrics["total_calls"] > 0 else 0, 2
                 ),
             },
             "agents": {
                 "available": available_agents,
                 "total": total_agents,
                 "utilization": round(
-                    ((total_agents - available_agents) / total_agents * 100)
-                    if total_agents > 0 else 0, 2
+                    ((total_agents - available_agents) / total_agents * 100) if total_agents > 0 else 0, 2
                 ),
             },
             "routing_strategy": queue.routing_strategy,
@@ -706,17 +704,20 @@ class MetricsService(BaseService):
     def _get_hourly_distribution(self, calls_query) -> List[Dict]:
         """Get call distribution by hour with optimized single query."""
         # Use aggregation to get all hours at once
-        hourly_counts = calls_query.extra(
-            select={'hour': 'EXTRACT(hour FROM created_at)'}
-        ).values('hour').annotate(count=Count('id')).order_by('hour')
+        hourly_counts = (
+            calls_query.extra(select={"hour": "EXTRACT(hour FROM created_at)"})
+            .values("hour")
+            .annotate(count=Count("id"))
+            .order_by("hour")
+        )
 
         # Create full 24-hour array
         hourly_data = [{"hour": hour, "count": 0} for hour in range(24)]
 
         # Fill in actual counts
         for item in hourly_counts:
-            hour = int(item['hour'])
-            hourly_data[hour]["count"] = item['count']
+            hour = int(item["hour"])
+            hourly_data[hour]["count"] = item["count"]
 
         return hourly_data
 
@@ -725,18 +726,18 @@ class MetricsService(BaseService):
         days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
         # Use aggregation to get all days at once
-        daily_counts = calls_query.extra(
-            select={'day': 'EXTRACT(dow FROM created_at)'}
-        ).values('day').annotate(count=Count('id'))
+        daily_counts = (
+            calls_query.extra(select={"day": "EXTRACT(dow FROM created_at)"}).values("day").annotate(count=Count("id"))
+        )
 
         # Create full week array (Django uses 0=Sunday, we want 0=Monday)
         weekly_data = [{"day": day, "count": 0} for day in days]
 
         # Fill in actual counts, adjusting for Django's day numbering
         for item in daily_counts:
-            django_day = int(item['day'])  # 0=Sunday in Django
+            django_day = int(item["day"])  # 0=Sunday in Django
             our_day = (django_day + 6) % 7  # Convert to 0=Monday
-            weekly_data[our_day]["count"] = item['count']
+            weekly_data[our_day]["count"] = item["count"]
 
         return weekly_data
 
@@ -746,9 +747,7 @@ class MetricsService(BaseService):
         reasons = {}
 
         # Limit the sample size for performance
-        sample_calls = calls_query.filter(
-            metadata__tags__isnull=False
-        ).values_list('metadata', flat=True)[:1000]
+        sample_calls = calls_query.filter(metadata__tags__isnull=False).values_list("metadata", flat=True)[:Limits.MAX_ANALYTICS_RESULTS]
 
         for metadata in sample_calls:
             tags = metadata.get("tags", []) if metadata else []
@@ -768,15 +767,15 @@ class MetricsService(BaseService):
             return 0
 
         # Sample calls for FCR calculation
-        sample_calls = completed_calls.values('from_number', 'created_at')[:total_sample]
+        sample_calls = completed_calls.values("from_number", "created_at")[:total_sample]
         fcr_count = 0
 
         for call_data in sample_calls:
             # Check for follow-up calls within 7 days
             follow_up_exists = Call.objects.filter(
-                from_number=call_data['from_number'],
-                created_at__gt=call_data['created_at'],
-                created_at__lt=call_data['created_at'] + timedelta(days=7),
+                from_number=call_data["from_number"],
+                created_at__gt=call_data["created_at"],
+                created_at__lt=call_data["created_at"] + timedelta(days=7),
             ).exists()
 
             if not follow_up_exists:
@@ -897,19 +896,20 @@ class MetricsService(BaseService):
                 total_duration=Sum("duration", filter=Q(status=Call.Status.COMPLETED)),
             )
 
-            summary.append({
-                "date": current_date.isoformat(),
-                "total_calls": metrics["total_calls"],
-                "completed_calls": metrics["completed"],
-                "abandoned_calls": metrics["abandoned"],
-                "avg_duration": round(metrics["avg_duration"] or 0, 2),
-                "avg_queue_time": round(metrics["avg_queue_time"] or 0, 2),
-                "total_duration": metrics["total_duration"] or 0,
-                "abandonment_rate": round(
-                    (metrics["abandoned"] / metrics["total_calls"] * 100)
-                    if metrics["total_calls"] > 0 else 0, 2
-                ),
-            })
+            summary.append(
+                {
+                    "date": current_date.isoformat(),
+                    "total_calls": metrics["total_calls"],
+                    "completed_calls": metrics["completed"],
+                    "abandoned_calls": metrics["abandoned"],
+                    "avg_duration": round(metrics["avg_duration"] or 0, 2),
+                    "avg_queue_time": round(metrics["avg_queue_time"] or 0, 2),
+                    "total_duration": metrics["total_duration"] or 0,
+                    "abandonment_rate": round(
+                        (metrics["abandoned"] / metrics["total_calls"] * 100) if metrics["total_calls"] > 0 else 0, 2
+                    ),
+                }
+            )
 
             current_date += timedelta(days=1)
 
@@ -942,21 +942,22 @@ class MetricsService(BaseService):
             transfers = calls.filter(metadata__transferred=True).count()
             hold_time = calls.aggregate(avg_hold=Avg("metadata__hold_time"))["avg_hold"] or 0
 
-            performance_data.append({
-                "agent_id": agent.id,
-                "agent_name": f"{agent.first_name} {agent.last_name}",
-                "extension": agent.extension,
-                "total_calls": metrics["total_calls"],
-                "completed_calls": metrics["completed"],
-                "avg_handling_time": round(metrics["avg_duration"] or 0, 2),
-                "total_talk_time": metrics["total_duration"] or 0,
-                "transfers": transfers,
-                "transfer_rate": round(
-                    (transfers / metrics["completed"] * 100)
-                    if metrics["completed"] > 0 else 0, 2
-                ),
-                "avg_hold_time": round(hold_time, 2),
-            })
+            performance_data.append(
+                {
+                    "agent_id": agent.id,
+                    "agent_name": f"{agent.first_name} {agent.last_name}",
+                    "extension": agent.extension,
+                    "total_calls": metrics["total_calls"],
+                    "completed_calls": metrics["completed"],
+                    "avg_handling_time": round(metrics["avg_duration"] or 0, 2),
+                    "total_talk_time": metrics["total_duration"] or 0,
+                    "transfers": transfers,
+                    "transfer_rate": round(
+                        (transfers / metrics["completed"] * 100) if metrics["completed"] > 0 else 0, 2
+                    ),
+                    "avg_hold_time": round(hold_time, 2),
+                }
+            )
 
         return performance_data
 
@@ -967,10 +968,7 @@ class MetricsService(BaseService):
         if filters.get("queue_id"):
             queues_query = queues_query.filter(id=filters["queue_id"])
 
-        return [
-            self._calculate_queue_metrics_detailed(queue, start_date, end_date)
-            for queue in queues_query
-        ]
+        return [self._calculate_queue_metrics_detailed(queue, start_date, end_date) for queue in queues_query]
 
     def _generate_abandoned_calls(self, start_date, end_date, filters) -> List[Dict]:
         """Generate abandoned calls report."""
@@ -988,15 +986,17 @@ class MetricsService(BaseService):
 
         abandoned_data = []
         for call in calls_query.select_related("queue"):
-            abandoned_data.append({
-                "call_id": str(call.public_id),
-                "from_number": call.from_number,
-                "to_number": call.to_number,
-                "queue": call.queue.name if call.queue else "N/A",
-                "wait_time": call.queue_time or 0,
-                "created_at": call.created_at.isoformat(),
-                "abandoned_at": call.updated_at.isoformat(),
-            })
+            abandoned_data.append(
+                {
+                    "call_id": str(call.public_id),
+                    "from_number": call.from_number,
+                    "to_number": call.to_number,
+                    "queue": call.queue.name if call.queue else "N/A",
+                    "wait_time": call.queue_time or 0,
+                    "created_at": call.created_at.isoformat(),
+                    "abandoned_at": call.updated_at.isoformat(),
+                }
+            )
 
         return abandoned_data
 
@@ -1018,9 +1018,7 @@ class MetricsService(BaseService):
 
             # Calculate metrics
             total_offered = calls_query.count()
-            answered = calls_query.filter(
-                status__in=[Call.Status.COMPLETED, Call.Status.IN_PROGRESS]
-            ).count()
+            answered = calls_query.filter(status__in=[Call.Status.COMPLETED, Call.Status.IN_PROGRESS]).count()
             abandoned = calls_query.filter(status=Call.Status.ABANDONED).count()
 
             # Service level calculation
@@ -1032,16 +1030,18 @@ class MetricsService(BaseService):
 
             service_level = (within_sl / answered * 100) if answered > 0 else 0
 
-            service_level_data.append({
-                "timestamp": current_time.isoformat(),
-                "hour": current_time.hour,
-                "offered": total_offered,
-                "answered": answered,
-                "abandoned": abandoned,
-                "within_service_level": within_sl,
-                "service_level": round(service_level, 2),
-                "threshold_seconds": threshold,
-            })
+            service_level_data.append(
+                {
+                    "timestamp": current_time.isoformat(),
+                    "hour": current_time.hour,
+                    "offered": total_offered,
+                    "answered": answered,
+                    "abandoned": abandoned,
+                    "within_service_level": within_sl,
+                    "service_level": round(service_level, 2),
+                    "threshold_seconds": threshold,
+                }
+            )
 
             current_time = hour_end
 
@@ -1063,24 +1063,26 @@ class MetricsService(BaseService):
             calls_query = calls_query.filter(status=filters["status"])
 
         call_details = []
-        for call in calls_query[:1000]:  # Limit for performance
-            call_details.append({
-                "call_id": str(call.public_id),
-                "twilio_sid": call.twilio_sid,
-                "from_number": call.from_number,
-                "to_number": call.to_number,
-                "direction": call.direction,
-                "status": call.status,
-                "queue": call.queue.name if call.queue else "N/A",
-                "agent": f"{call.agent.first_name} {call.agent.last_name}" if call.agent else "N/A",
-                "duration": call.duration or 0,
-                "queue_time": call.queue_time or 0,
-                "created_at": call.created_at.isoformat(),
-                "answered_at": call.answered_at.isoformat() if call.answered_at else None,
-                "ended_at": call.ended_at.isoformat() if call.ended_at else None,
-                "recording_url": call.recording_url,
-                "voicemail_url": call.voicemail_url,
-            })
+        for call in calls_query[:Limits.MAX_ANALYTICS_RESULTS]:  # Limit for performance
+            call_details.append(
+                {
+                    "call_id": str(call.public_id),
+                    "twilio_sid": call.twilio_sid,
+                    "from_number": call.from_number,
+                    "to_number": call.to_number,
+                    "direction": call.direction,
+                    "status": call.status,
+                    "queue": call.queue.name if call.queue else "N/A",
+                    "agent": f"{call.agent.first_name} {call.agent.last_name}" if call.agent else "N/A",
+                    "duration": call.duration or 0,
+                    "queue_time": call.queue_time or 0,
+                    "created_at": call.created_at.isoformat(),
+                    "answered_at": call.answered_at.isoformat() if call.answered_at else None,
+                    "ended_at": call.ended_at.isoformat() if call.ended_at else None,
+                    "recording_url": call.recording_url,
+                    "voicemail_url": call.voicemail_url,
+                }
+            )
 
         return call_details
 
@@ -1097,16 +1099,18 @@ class MetricsService(BaseService):
             activities_query = activities_query.filter(agent_id=filters["agent_id"])
 
         activity_data = []
-        for activity in activities_query[:1000]:  # Limit for performance
-            activity_data.append({
-                "agent_id": activity.agent.id,
-                "agent_name": f"{activity.agent.first_name} {activity.agent.last_name}",
-                "activity_type": activity.activity_type,
-                "old_status": activity.old_status,
-                "new_status": activity.new_status,
-                "reason": activity.reason,
-                "timestamp": activity.timestamp.isoformat(),
-            })
+        for activity in activities_query[:Limits.MAX_ANALYTICS_RESULTS]:  # Limit for performance
+            activity_data.append(
+                {
+                    "agent_id": activity.agent.id,
+                    "agent_name": f"{activity.agent.first_name} {activity.agent.last_name}",
+                    "activity_type": activity.activity_type,
+                    "old_status": activity.old_status,
+                    "new_status": activity.new_status,
+                    "reason": activity.reason,
+                    "timestamp": activity.timestamp.isoformat(),
+                }
+            )
 
         return activity_data
 
@@ -1132,15 +1136,17 @@ class MetricsService(BaseService):
                 avg_queue_time=Avg("queue_time"),
             )
 
-            hourly_data.append({
-                "hour": hour,
-                "hour_label": f"{hour:02d}:00",
-                "total_calls": metrics["total"],
-                "completed": metrics["completed"],
-                "abandoned": metrics["abandoned"],
-                "avg_duration": round(metrics["avg_duration"] or 0, 2),
-                "avg_queue_time": round(metrics["avg_queue_time"] or 0, 2),
-            })
+            hourly_data.append(
+                {
+                    "hour": hour,
+                    "hour_label": f"{hour:02d}:00",
+                    "total_calls": metrics["total"],
+                    "completed": metrics["completed"],
+                    "abandoned": metrics["abandoned"],
+                    "avg_duration": round(metrics["avg_duration"] or 0, 2),
+                    "avg_queue_time": round(metrics["avg_queue_time"] or 0, 2),
+                }
+            )
 
         return hourly_data
 

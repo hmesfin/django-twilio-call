@@ -2,93 +2,59 @@
 
 import time
 from datetime import datetime
+
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from ...monitoring import task_monitor, get_system_status
+from ...monitoring import get_system_status, task_monitor
 
 
 class Command(BaseCommand):
     """Management command for task monitoring."""
 
-    help = 'Monitor Celery task performance and system health'
+    help = "Monitor Celery task performance and system health"
 
     def add_arguments(self, parser):
+        parser.add_argument("--task", type=str, help="Specific task to monitor")
+        parser.add_argument("--health", action="store_true", help="Show system health metrics")
+        parser.add_argument("--slow", action="store_true", help="Show slow-running tasks")
+        parser.add_argument("--failures", action="store_true", help="Show failure analysis")
+        parser.add_argument("--queues", action="store_true", help="Show queue metrics")
+        parser.add_argument("--watch", action="store_true", help="Continuously monitor (refresh every 30 seconds)")
         parser.add_argument(
-            '--task',
-            type=str,
-            help='Specific task to monitor'
+            "--threshold", type=int, default=30, help="Threshold in seconds for slow tasks (default: 30)"
         )
-        parser.add_argument(
-            '--health',
-            action='store_true',
-            help='Show system health metrics'
-        )
-        parser.add_argument(
-            '--slow',
-            action='store_true',
-            help='Show slow-running tasks'
-        )
-        parser.add_argument(
-            '--failures',
-            action='store_true',
-            help='Show failure analysis'
-        )
-        parser.add_argument(
-            '--queues',
-            action='store_true',
-            help='Show queue metrics'
-        )
-        parser.add_argument(
-            '--watch',
-            action='store_true',
-            help='Continuously monitor (refresh every 30 seconds)'
-        )
-        parser.add_argument(
-            '--threshold',
-            type=int,
-            default=30,
-            help='Threshold in seconds for slow tasks (default: 30)'
-        )
-        parser.add_argument(
-            '--hours',
-            type=int,
-            default=24,
-            help='Hours to analyze for failure analysis (default: 24)'
-        )
+        parser.add_argument("--hours", type=int, default=24, help="Hours to analyze for failure analysis (default: 24)")
 
     def handle(self, *args, **options):
         """Handle the command execution."""
-        if options['watch']:
+        if options["watch"]:
             self.watch_mode(options)
         else:
             self.single_run(options)
 
     def single_run(self, options):
         """Run monitoring once and exit."""
-        self.stdout.write(
-            self.style.SUCCESS(f"Task Monitoring Report - {timezone.now().isoformat()}")
-        )
+        self.stdout.write(self.style.SUCCESS(f"Task Monitoring Report - {timezone.now().isoformat()}"))
         self.stdout.write("=" * 80)
 
-        if options['health']:
+        if options["health"]:
             self.show_health()
 
-        if options['queues']:
+        if options["queues"]:
             self.show_queues()
 
-        if options['slow']:
-            self.show_slow_tasks(options['threshold'])
+        if options["slow"]:
+            self.show_slow_tasks(options["threshold"])
 
-        if options['failures']:
-            self.show_failures(options['hours'])
+        if options["failures"]:
+            self.show_failures(options["hours"])
 
-        if options['task']:
-            self.show_task_details(options['task'])
+        if options["task"]:
+            self.show_task_details(options["task"])
 
         # If no specific option provided, show overview
-        if not any([options['health'], options['queues'], options['slow'],
-                   options['failures'], options['task']]):
+        if not any([options["health"], options["queues"], options["slow"], options["failures"], options["task"]]):
             self.show_overview()
 
     def watch_mode(self, options):
@@ -96,7 +62,7 @@ class Command(BaseCommand):
         try:
             while True:
                 # Clear screen
-                self.stdout.write('\033[2J\033[H')
+                self.stdout.write("\033[2J\033[H")
 
                 self.stdout.write(
                     self.style.SUCCESS(f"Live Task Monitoring - {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -105,8 +71,8 @@ class Command(BaseCommand):
 
                 self.show_overview()
 
-                if options['slow']:
-                    self.show_slow_tasks(options['threshold'])
+                if options["slow"]:
+                    self.show_slow_tasks(options["threshold"])
 
                 self.stdout.write("\nPress Ctrl+C to exit...")
                 time.sleep(30)
@@ -130,9 +96,9 @@ class Command(BaseCommand):
             self.stdout.write(f"Avg Execution Time: {health['average_execution_time']:.2f}s")
 
             # Show status indicator
-            if health['recent_success_rate'] >= 95:
+            if health["recent_success_rate"] >= 95:
                 status = self.style.SUCCESS("🟢 HEALTHY")
-            elif health['recent_success_rate'] >= 90:
+            elif health["recent_success_rate"] >= 90:
                 status = self.style.WARNING("🟡 WARNING")
             else:
                 status = self.style.ERROR("🔴 CRITICAL")
@@ -149,7 +115,7 @@ class Command(BaseCommand):
 
         try:
             system_status = get_system_status()
-            health = system_status.get('health', {})
+            health = system_status.get("health", {})
 
             for key, value in health.items():
                 if isinstance(value, float):
@@ -205,11 +171,11 @@ class Command(BaseCommand):
             self.stdout.write("-" * 75)
 
             for task in slow_tasks:
-                duration_style = self.style.WARNING if task['duration'] < 60 else self.style.ERROR
+                duration_style = self.style.WARNING if task["duration"] < 60 else self.style.ERROR
                 self.stdout.write(
                     f"{task['task_name'][:29]:<30} "
                     f"{task['queue_name']:<15} "
-                    f"{duration_style(f'{task['duration']:.1f}s'):<10} "
+                    f"{duration_style(f'{task["duration"]:.1f}s'):<10} "
                     f"{task['task_id'][:14]:<15}"
                 )
 
@@ -227,22 +193,14 @@ class Command(BaseCommand):
             self.stdout.write(f"Total Failures: {failures['total_failures']}")
             self.stdout.write(f"Failure Rate: {failures['failure_rate']:.2f} failures/hour")
 
-            if failures['failure_by_task']:
+            if failures["failure_by_task"]:
                 self.stdout.write("\nFailures by Task:")
-                for task_name, count in sorted(
-                    failures['failure_by_task'].items(),
-                    key=lambda x: x[1],
-                    reverse=True
-                ):
+                for task_name, count in sorted(failures["failure_by_task"].items(), key=lambda x: x[1], reverse=True):
                     self.stdout.write(f"  {task_name}: {count}")
 
-            if failures['failure_by_queue']:
+            if failures["failure_by_queue"]:
                 self.stdout.write("\nFailures by Queue:")
-                for queue_name, count in sorted(
-                    failures['failure_by_queue'].items(),
-                    key=lambda x: x[1],
-                    reverse=True
-                ):
+                for queue_name, count in sorted(failures["failure_by_queue"].items(), key=lambda x: x[1], reverse=True):
                     self.stdout.write(f"  {queue_name}: {count}")
 
         except Exception as e:
@@ -269,16 +227,16 @@ class Command(BaseCommand):
             self.stdout.write(f"Max Duration: {metrics['max_duration']:.2f}s")
             self.stdout.write(f"Active Tasks: {metrics['active_tasks']}")
 
-            if metrics['last_execution']:
-                last_exec = datetime.fromtimestamp(metrics['last_execution'])
+            if metrics["last_execution"]:
+                last_exec = datetime.fromtimestamp(metrics["last_execution"])
                 self.stdout.write(f"Last Execution: {last_exec.strftime('%Y-%m-%d %H:%M:%S')}")
 
             # Get trends if available
             try:
                 trends = task_monitor.get_task_performance_trends(task_name, 7)
-                if trends and 'daily_stats' in trends:
+                if trends and "daily_stats" in trends:
                     self.stdout.write("\n7-Day Trend:")
-                    for day_stat in trends['daily_stats'][-7:]:  # Last 7 days
+                    for day_stat in trends["daily_stats"][-7:]:  # Last 7 days
                         self.stdout.write(
                             f"  {day_stat['date']}: "
                             f"{day_stat['total_executions']} executions, "

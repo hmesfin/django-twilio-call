@@ -1,6 +1,7 @@
 """Serializers for async task monitoring and management."""
 
 from rest_framework import serializers
+
 from ..models import TaskExecution, WebhookLog
 
 
@@ -14,10 +15,22 @@ class TaskExecutionSerializer(serializers.ModelSerializer):
     class Meta:
         model = TaskExecution
         fields = [
-            'public_id', 'task_id', 'task_name', 'status', 'queue_name',
-            'worker_name', 'retry_count', 'duration_seconds', 'duration_minutes',
-            'started_at', 'completed_at', 'created_at', 'progress',
-            'is_active', 'is_completed', 'result'
+            "public_id",
+            "task_id",
+            "task_name",
+            "status",
+            "queue_name",
+            "worker_name",
+            "retry_count",
+            "duration_seconds",
+            "duration_minutes",
+            "started_at",
+            "completed_at",
+            "created_at",
+            "progress",
+            "is_active",
+            "is_completed",
+            "result",
         ]
         read_only_fields = fields
 
@@ -32,9 +45,7 @@ class TaskExecutionDetailSerializer(TaskExecutionSerializer):
     """Detailed serializer for TaskExecution model."""
 
     class Meta(TaskExecutionSerializer.Meta):
-        fields = TaskExecutionSerializer.Meta.fields + [
-            'args', 'kwargs', 'metadata'
-        ]
+        fields = TaskExecutionSerializer.Meta.fields + ["args", "kwargs", "metadata"]
 
 
 class TaskStatusSerializer(serializers.Serializer):
@@ -119,23 +130,31 @@ class WebhookLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = WebhookLog
         fields = [
-            'public_id', 'webhook_type', 'url', 'status', 'http_status_code',
-            'retry_count', 'next_retry_at', 'delivered_at', 'abandoned_at',
-            'error_message', 'created_at', 'can_retry', 'next_retry_in_seconds'
+            "public_id",
+            "webhook_type",
+            "url",
+            "status",
+            "http_status_code",
+            "retry_count",
+            "next_retry_at",
+            "delivered_at",
+            "abandoned_at",
+            "error_message",
+            "created_at",
+            "can_retry",
+            "next_retry_in_seconds",
         ]
         read_only_fields = fields
 
     def get_can_retry(self, obj):
         """Check if webhook can be retried."""
-        return (
-            obj.status in [WebhookLog.Status.FAILED, WebhookLog.Status.RETRYING] and
-            obj.retry_count < 3
-        )
+        return obj.status in [WebhookLog.Status.FAILED, WebhookLog.Status.RETRYING] and obj.retry_count < 3
 
     def get_next_retry_in_seconds(self, obj):
         """Get seconds until next retry."""
         if obj.next_retry_at:
             from django.utils import timezone
+
             now = timezone.now()
             if obj.next_retry_at > now:
                 return int((obj.next_retry_at - now).total_seconds())
@@ -146,48 +165,29 @@ class ReportGenerationRequestSerializer(serializers.Serializer):
     """Serializer for report generation requests."""
 
     report_type = serializers.ChoiceField(
-        choices=['daily', 'weekly', 'monthly'],
-        help_text="Type of report to generate"
+        choices=["daily", "weekly", "monthly"], help_text="Type of report to generate"
     )
-    date_str = serializers.CharField(
-        required=False,
-        help_text="Date string for daily reports (YYYY-MM-DD)"
-    )
-    week_start_str = serializers.CharField(
-        required=False,
-        help_text="Week start date for weekly reports (YYYY-MM-DD)"
-    )
-    year = serializers.IntegerField(
-        required=False,
-        help_text="Year for monthly reports"
-    )
+    date_str = serializers.CharField(required=False, help_text="Date string for daily reports (YYYY-MM-DD)")
+    week_start_str = serializers.CharField(required=False, help_text="Week start date for weekly reports (YYYY-MM-DD)")
+    year = serializers.IntegerField(required=False, help_text="Year for monthly reports")
     month = serializers.IntegerField(
-        required=False,
-        min_value=1,
-        max_value=12,
-        help_text="Month for monthly reports (1-12)"
+        required=False, min_value=1, max_value=12, help_text="Month for monthly reports (1-12)"
     )
     email_recipients = serializers.ListField(
-        child=serializers.EmailField(),
-        required=False,
-        help_text="Email addresses to send the report to"
+        child=serializers.EmailField(), required=False, help_text="Email addresses to send the report to"
     )
 
     def validate(self, data):
         """Validate report generation request."""
-        report_type = data.get('report_type')
+        report_type = data.get("report_type")
 
-        if report_type == 'monthly':
-            year = data.get('year')
-            month = data.get('month')
+        if report_type == "monthly":
+            year = data.get("year")
+            month = data.get("month")
             if year and not month:
-                raise serializers.ValidationError(
-                    "Month is required when year is specified for monthly reports"
-                )
+                raise serializers.ValidationError("Month is required when year is specified for monthly reports")
             if month and not year:
-                raise serializers.ValidationError(
-                    "Year is required when month is specified for monthly reports"
-                )
+                raise serializers.ValidationError("Year is required when month is specified for monthly reports")
 
         return data
 
@@ -195,44 +195,26 @@ class ReportGenerationRequestSerializer(serializers.Serializer):
 class DataExportRequestSerializer(serializers.Serializer):
     """Serializer for data export requests."""
 
-    format = serializers.ChoiceField(
-        choices=['csv', 'excel', 'json'],
-        default='csv',
-        help_text="Export format"
-    )
-    start_date = serializers.DateTimeField(
-        required=False,
-        help_text="Start date for data filter"
-    )
-    end_date = serializers.DateTimeField(
-        required=False,
-        help_text="End date for data filter"
-    )
+    format = serializers.ChoiceField(choices=["csv", "excel", "json"], default="csv", help_text="Export format")
+    start_date = serializers.DateTimeField(required=False, help_text="Start date for data filter")
+    end_date = serializers.DateTimeField(required=False, help_text="End date for data filter")
     queue_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        required=False,
-        help_text="Queue IDs to filter by"
+        child=serializers.IntegerField(), required=False, help_text="Queue IDs to filter by"
     )
     agent_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        required=False,
-        help_text="Agent IDs to filter by"
+        child=serializers.IntegerField(), required=False, help_text="Agent IDs to filter by"
     )
     status = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        help_text="Call statuses to filter by"
+        child=serializers.CharField(), required=False, help_text="Call statuses to filter by"
     )
 
     def validate(self, data):
         """Validate export request."""
-        start_date = data.get('start_date')
-        end_date = data.get('end_date')
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
 
         if start_date and end_date and start_date >= end_date:
-            raise serializers.ValidationError(
-                "End date must be after start date"
-            )
+            raise serializers.ValidationError("End date must be after start date")
 
         return data
 
@@ -240,46 +222,27 @@ class DataExportRequestSerializer(serializers.Serializer):
 class TaskRetryRequestSerializer(serializers.Serializer):
     """Serializer for task retry requests."""
 
-    task_ids = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="List of task IDs to retry"
-    )
-    force = serializers.BooleanField(
-        default=False,
-        help_text="Force retry even if task is not in failed state"
-    )
+    task_ids = serializers.ListField(child=serializers.CharField(), help_text="List of task IDs to retry")
+    force = serializers.BooleanField(default=False, help_text="Force retry even if task is not in failed state")
 
 
 class BulkTaskActionSerializer(serializers.Serializer):
     """Serializer for bulk task actions."""
 
-    action = serializers.ChoiceField(
-        choices=['retry', 'cancel', 'delete'],
-        help_text="Action to perform on tasks"
-    )
-    task_ids = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="List of task IDs to act on"
-    )
-    filters = serializers.DictField(
-        required=False,
-        help_text="Filters to select tasks (alternative to task_ids)"
-    )
+    action = serializers.ChoiceField(choices=["retry", "cancel", "delete"], help_text="Action to perform on tasks")
+    task_ids = serializers.ListField(child=serializers.CharField(), help_text="List of task IDs to act on")
+    filters = serializers.DictField(required=False, help_text="Filters to select tasks (alternative to task_ids)")
 
     def validate(self, data):
         """Validate bulk action request."""
-        task_ids = data.get('task_ids')
-        filters = data.get('filters')
+        task_ids = data.get("task_ids")
+        filters = data.get("filters")
 
         if not task_ids and not filters:
-            raise serializers.ValidationError(
-                "Either task_ids or filters must be provided"
-            )
+            raise serializers.ValidationError("Either task_ids or filters must be provided")
 
         if task_ids and filters:
-            raise serializers.ValidationError(
-                "Cannot specify both task_ids and filters"
-            )
+            raise serializers.ValidationError("Cannot specify both task_ids and filters")
 
         return data
 
@@ -289,9 +252,7 @@ class TaskTrendSerializer(serializers.Serializer):
 
     task_name = serializers.CharField()
     period_days = serializers.IntegerField()
-    daily_stats = serializers.ListField(
-        child=serializers.DictField()
-    )
+    daily_stats = serializers.ListField(child=serializers.DictField())
 
 
 class DailyTaskStatsSerializer(serializers.Serializer):

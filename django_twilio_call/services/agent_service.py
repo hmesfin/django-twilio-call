@@ -2,23 +2,29 @@
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Avg, Count, F, Q, Sum
 from django.utils import timezone
 
 from ..exceptions import AgentNotAvailableError
 from ..models import Agent, AgentActivity, Call
+from ..conf import get_config
+from ..constants import DefaultValues, CacheTimeouts
+from .base import BaseService
 
 logger = logging.getLogger(__name__)
 
 
-class AgentService:
+class AgentService(BaseService):
     """Service for managing agent operations."""
+
+    service_type = "agent"
 
     def __init__(self):
         """Initialize agent service."""
+        super().__init__()
         self.status_webhooks = []
 
     @transaction.atomic
@@ -204,8 +210,8 @@ class AgentService:
             # Default break durations
             default_durations = {
                 "standard": 15,
-                "lunch": 30,
-                "training": 60,
+                "lunch": DefaultValues.LUNCH_DURATION_MINUTES,
+                "training": DefaultValues.TRAINING_DURATION_MINUTES,
             }
             duration = default_durations.get(break_type, 15)
             expected_return = timezone.now() + timedelta(minutes=duration)
@@ -315,7 +321,7 @@ class AgentService:
 
             # Default to last 30 days
             if not date_from:
-                date_from = timezone.now() - timedelta(days=30)
+                date_from = timezone.now() - timedelta(days=DefaultValues.DEFAULT_ANALYSIS_PERIOD_DAYS)
             if not date_to:
                 date_to = timezone.now()
 
@@ -386,16 +392,20 @@ class AgentService:
 
         """
         try:
-            agent = Agent.objects.select_related("user").prefetch_related(
-                "queues",
-                Prefetch(
-                    "calls",
-                    queryset=Call.objects.filter(
-                        status__in=["queued", "ringing", "in-progress"]
-                    ).select_related("queue"),
-                    to_attr="active_calls_list"
+            agent = (
+                Agent.objects.select_related("user")
+                .prefetch_related(
+                    "queues",
+                    Prefetch(
+                        "calls",
+                        queryset=Call.objects.filter(status__in=["queued", "ringing", "in-progress"]).select_related(
+                            "queue"
+                        ),
+                        to_attr="active_calls_list",
+                    ),
                 )
-            ).get(id=agent_id)
+                .get(id=agent_id)
+            )
 
             # Get current status info
             dashboard = {
@@ -501,7 +511,7 @@ class AgentService:
 
     def get_available_agents_queryset(
         self,
-        queue: Optional['Queue'] = None,
+        queue: Optional["Queue"] = None,
         queue_id: Optional[int] = None,
         skills: Optional[List[str]] = None,
         business_hours_check: bool = False,
@@ -555,13 +565,14 @@ class AgentService:
 
         Returns:
             True if within business hours
+
         """
         now = timezone.now()
         current_time = now.time()
         current_day = now.weekday()  # 0=Monday, 6=Sunday
 
         # Get day name
-        day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
         current_day_name = day_names[current_day]
 
         # Check if current day is configured
@@ -569,15 +580,16 @@ class AgentService:
             return False
 
         day_config = business_hours[current_day_name]
-        if not day_config.get('enabled', True):
+        if not day_config.get("enabled", True):
             return False
 
         # Check time range
-        start_time = day_config.get('start_time', '09:00')
-        end_time = day_config.get('end_time', '17:00')
+        start_time = day_config.get("start_time", "09:00")
+        end_time = day_config.get("end_time", "17:00")
 
         try:
             from datetime import time
+
             start = time.fromisoformat(start_time)
             end = time.fromisoformat(end_time)
             return start <= current_time <= end
@@ -588,7 +600,7 @@ class AgentService:
     def check_agent_availability(
         self,
         agent_id: int,
-        queue: Optional['Queue'] = None,
+        queue: Optional["Queue"] = None,
         required_skills: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Check detailed availability status for a specific agent.
@@ -609,10 +621,7 @@ class AgentService:
             is_available = agent.status == Agent.Status.AVAILABLE and agent.is_active
 
             # Check capacity
-            current_calls = Call.objects.filter(
-                agent=agent,
-                status=Call.Status.IN_PROGRESS
-            ).count()
+            current_calls = Call.objects.filter(agent=agent, status=Call.Status.IN_PROGRESS).count()
             has_capacity = current_calls < agent.max_concurrent_calls
 
             # Check queue membership
@@ -630,12 +639,7 @@ class AgentService:
                 skills_compatible = len(skill_gaps) == 0
 
             # Overall availability
-            overall_available = (
-                is_available and
-                has_capacity and
-                queue_compatible and
-                skills_compatible
-            )
+            overall_available = is_available and has_capacity and queue_compatible and skills_compatible
 
             return {
                 "agent_id": agent.id,

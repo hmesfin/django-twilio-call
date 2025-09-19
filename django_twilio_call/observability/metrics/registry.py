@@ -1,9 +1,9 @@
 """Centralized metrics registry for consistent metric management."""
 
 import logging
-from typing import Dict, List, Optional, Union, Sequence
+from typing import Dict, List, Optional, Sequence, Union
 
-from prometheus_client import Counter, Gauge, Histogram, Summary, CollectorRegistry, REGISTRY
+from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge, Histogram, Summary
 from prometheus_client.metrics import MetricWrapperBase
 
 logger = logging.getLogger(__name__)
@@ -16,68 +16,50 @@ class MetricsRegistry:
         self.registry = registry or REGISTRY
         self._metrics: Dict[str, MetricWrapperBase] = {}
 
-    def register_counter(self, name: str, description: str,
-                        labels: Optional[List[str]] = None) -> Counter:
+    def register_counter(self, name: str, description: str, labels: Optional[List[str]] = None) -> Counter:
         """Register a Counter metric."""
         if name in self._metrics:
             return self._metrics[name]
 
-        counter = Counter(
-            name=name,
-            documentation=description,
-            labelnames=labels or [],
-            registry=self.registry
-        )
+        counter = Counter(name=name, documentation=description, labelnames=labels or [], registry=self.registry)
         self._metrics[name] = counter
         logger.debug(f"Registered counter metric: {name}")
         return counter
 
-    def register_gauge(self, name: str, description: str,
-                      labels: Optional[List[str]] = None) -> Gauge:
+    def register_gauge(self, name: str, description: str, labels: Optional[List[str]] = None) -> Gauge:
         """Register a Gauge metric."""
         if name in self._metrics:
             return self._metrics[name]
 
-        gauge = Gauge(
-            name=name,
-            documentation=description,
-            labelnames=labels or [],
-            registry=self.registry
-        )
+        gauge = Gauge(name=name, documentation=description, labelnames=labels or [], registry=self.registry)
         self._metrics[name] = gauge
         logger.debug(f"Registered gauge metric: {name}")
         return gauge
 
-    def register_histogram(self, name: str, description: str,
-                          labels: Optional[List[str]] = None,
-                          buckets: Optional[Sequence[Union[float, str]]] = None) -> Histogram:
+    def register_histogram(
+        self,
+        name: str,
+        description: str,
+        labels: Optional[List[str]] = None,
+        buckets: Optional[Sequence[Union[float, str]]] = None,
+    ) -> Histogram:
         """Register a Histogram metric."""
         if name in self._metrics:
             return self._metrics[name]
 
         histogram = Histogram(
-            name=name,
-            documentation=description,
-            labelnames=labels or [],
-            buckets=buckets,
-            registry=self.registry
+            name=name, documentation=description, labelnames=labels or [], buckets=buckets, registry=self.registry
         )
         self._metrics[name] = histogram
         logger.debug(f"Registered histogram metric: {name}")
         return histogram
 
-    def register_summary(self, name: str, description: str,
-                        labels: Optional[List[str]] = None) -> Summary:
+    def register_summary(self, name: str, description: str, labels: Optional[List[str]] = None) -> Summary:
         """Register a Summary metric."""
         if name in self._metrics:
             return self._metrics[name]
 
-        summary = Summary(
-            name=name,
-            documentation=description,
-            labelnames=labels or [],
-            registry=self.registry
-        )
+        summary = Summary(name=name, documentation=description, labelnames=labels or [], registry=self.registry)
         self._metrics[name] = summary
         logger.debug(f"Registered summary metric: {name}")
         return summary

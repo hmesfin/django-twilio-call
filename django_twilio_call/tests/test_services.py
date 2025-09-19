@@ -1,12 +1,12 @@
 """Unit tests for services."""
 
 from datetime import timedelta
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 from django.test import TestCase
 from django.utils import timezone
 
-from ..exceptions import CallServiceError, QueueServiceError
+from ..exceptions import QueueServiceError
 from ..models import Agent, Call, CallLog, Queue
 from ..services import (
     agent_service,

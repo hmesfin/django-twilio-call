@@ -1,11 +1,12 @@
 """Factory classes for generating test data."""
 
-import factory
 import random
+from typing import Any, Dict, List
+
+import factory
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from factory import fuzzy
-from typing import List, Dict, Any
 
 from ..models import Agent, Call, CallLog, PhoneNumber, Queue
 
@@ -119,6 +120,7 @@ class CallLogFactory(factory.django.DjangoModelFactory):
 # ===========================================
 # FACTORY TRAITS
 # ===========================================
+
 
 class AgentTraits:
     """Traits for Agent factory to create agents in specific states."""
@@ -240,6 +242,7 @@ QueueFactory._traits = QueueTraits
 # RELATIONSHIP FACTORIES
 # ===========================================
 
+
 class AgentWithQueuesFactory(AgentFactory):
     """Agent factory that automatically creates queue relationships."""
 
@@ -271,26 +274,18 @@ class CallWithFullContextFactory(CallFactory):
             return
 
         # Create standard call logs
-        CallLogFactory(
-            call=self,
-            event_type=CallLog.EventType.INITIATED,
-            description="Call initiated"
-        )
+        CallLogFactory(call=self, event_type=CallLog.EventType.INITIATED, description="Call initiated")
 
         if self.agent:
             CallLogFactory(
                 call=self,
                 event_type=CallLog.EventType.ANSWERED,
                 description=f"Call answered by {self.agent.first_name}",
-                agent=self.agent
+                agent=self.agent,
             )
 
         if self.status == Call.Status.COMPLETED:
-            CallLogFactory(
-                call=self,
-                event_type=CallLog.EventType.ENDED,
-                description="Call completed normally"
-            )
+            CallLogFactory(call=self, event_type=CallLog.EventType.ENDED, description="Call completed normally")
 
 
 class QueueWithAgentsFactory(QueueFactory):
@@ -316,46 +311,32 @@ class QueueWithAgentsFactory(QueueFactory):
 # SCENARIO-BASED FACTORIES
 # ===========================================
 
+
 def create_active_call_center_scenario():
     """Create a realistic active call center scenario."""
     # Create queues
-    support_queue = QueueFactory(
-        name="Customer Support",
-        priority=5,
-        routing_strategy=Queue.RoutingStrategy.FIFO
-    )
+    support_queue = QueueFactory(name="Customer Support", priority=5, routing_strategy=Queue.RoutingStrategy.FIFO)
 
     technical_queue = QueueFactory(
         name="Technical Support",
         priority=8,
         routing_strategy=Queue.RoutingStrategy.SKILLS_BASED,
-        required_skills=["technical"]
+        required_skills=["technical"],
     )
 
     escalation_queue = QueueFactory(
         name="Escalation",
         priority=10,
         routing_strategy=Queue.RoutingStrategy.SKILLS_BASED,
-        required_skills=["senior", "escalation"]
+        required_skills=["senior", "escalation"],
     )
 
     # Create agents with different skill levels
-    junior_agents = AgentFactory.create_batch(
-        5,
-        skills=["basic", "customer_service"],
-        max_concurrent_calls=1
-    )
+    junior_agents = AgentFactory.create_batch(5, skills=["basic", "customer_service"], max_concurrent_calls=1)
 
-    senior_agents = AgentFactory.create_batch(
-        3,
-        skills=["technical", "senior", "escalation"],
-        max_concurrent_calls=2
-    )
+    senior_agents = AgentFactory.create_batch(3, skills=["technical", "senior", "escalation"], max_concurrent_calls=2)
 
-    supervisor = AgentFactory(
-        skills=["supervisor", "management", "escalation"],
-        max_concurrent_calls=3
-    )
+    supervisor = AgentFactory(skills=["supervisor", "management", "escalation"], max_concurrent_calls=3)
 
     # Assign agents to queues
     all_agents = junior_agents + senior_agents + [supervisor]
@@ -379,7 +360,7 @@ def create_active_call_center_scenario():
             status=Call.Status.IN_PROGRESS,
             agent=agent,
             queue=random.choice([support_queue, technical_queue]),
-            duration=random.randint(60, 300)
+            duration=random.randint(60, 300),
         )
         active_calls.append(call)
 
@@ -387,11 +368,7 @@ def create_active_call_center_scenario():
     queued_calls = []
     for i in range(6):
         queue = random.choice([support_queue, technical_queue, escalation_queue])
-        call = CallFactory(
-            status=Call.Status.QUEUED,
-            queue=queue,
-            queue_time=random.randint(10, 120)
-        )
+        call = CallFactory(status=Call.Status.QUEUED, queue=queue, queue_time=random.randint(10, 120))
         queued_calls.append(call)
 
     # Recent completed calls
@@ -400,31 +377,14 @@ def create_active_call_center_scenario():
         agent = random.choice(all_agents)
         queue = random.choice([support_queue, technical_queue])
         call = CallFactory(
-            status=Call.Status.COMPLETED,
-            agent=agent,
-            queue=queue,
-            duration=random.randint(60, 600),
-            completed=True
+            status=Call.Status.COMPLETED, agent=agent, queue=queue, duration=random.randint(60, 600), completed=True
         )
         completed_calls.append(call)
 
     return {
-        'queues': {
-            'support': support_queue,
-            'technical': technical_queue,
-            'escalation': escalation_queue
-        },
-        'agents': {
-            'junior': junior_agents,
-            'senior': senior_agents,
-            'supervisor': supervisor,
-            'all': all_agents
-        },
-        'calls': {
-            'active': active_calls,
-            'queued': queued_calls,
-            'completed': completed_calls
-        }
+        "queues": {"support": support_queue, "technical": technical_queue, "escalation": escalation_queue},
+        "agents": {"junior": junior_agents, "senior": senior_agents, "supervisor": supervisor, "all": all_agents},
+        "calls": {"active": active_calls, "queued": queued_calls, "completed": completed_calls},
     }
 
 
@@ -447,17 +407,13 @@ def create_peak_hour_scenario():
         CallFactory(status=Call.Status.IN_PROGRESS, agent=agent, queue=queue)
 
     # Create many queued calls
-    queued_calls = CallFactory.create_batch(
-        15,
-        status=Call.Status.QUEUED,
-        queue=queue
-    )
+    queued_calls = CallFactory.create_batch(15, status=Call.Status.QUEUED, queue=queue)
 
     return {
-        'queue': queue,
-        'busy_agents': busy_agents,
-        'available_agents': available_agents,
-        'queued_calls': queued_calls
+        "queue": queue,
+        "busy_agents": busy_agents,
+        "available_agents": available_agents,
+        "queued_calls": queued_calls,
     }
 
 
@@ -468,49 +424,29 @@ def create_agent_performance_scenario():
     agent.queues.add(queue)
 
     # Create calls with various outcomes
-    completed_calls = CallFactory.create_batch(
-        15,
-        agent=agent,
-        queue=queue,
-        completed=True
-    )
+    completed_calls = CallFactory.create_batch(15, agent=agent, queue=queue, completed=True)
 
     # Some short calls
-    short_calls = CallFactory.create_batch(
-        5,
-        agent=agent,
-        queue=queue,
-        completed=True,
-        short_duration=True
-    )
+    short_calls = CallFactory.create_batch(5, agent=agent, queue=queue, completed=True, short_duration=True)
 
     # Some long calls
-    long_calls = CallFactory.create_batch(
-        3,
-        agent=agent,
-        queue=queue,
-        completed=True,
-        long_duration=True
-    )
+    long_calls = CallFactory.create_batch(3, agent=agent, queue=queue, completed=True, long_duration=True)
 
     # Some abandoned calls in their queue
-    abandoned_calls = CallFactory.create_batch(
-        2,
-        queue=queue,
-        abandoned=True
-    )
+    abandoned_calls = CallFactory.create_batch(2, queue=queue, abandoned=True)
 
     return {
-        'agent': agent,
-        'queue': queue,
-        'completed_calls': completed_calls + short_calls + long_calls,
-        'abandoned_calls': abandoned_calls
+        "agent": agent,
+        "queue": queue,
+        "completed_calls": completed_calls + short_calls + long_calls,
+        "abandoned_calls": abandoned_calls,
     }
 
 
 # ===========================================
 # BULK FACTORY METHODS
 # ===========================================
+
 
 class BulkFactoryMixin:
     """Mixin to add bulk creation methods to factories."""
@@ -545,22 +481,16 @@ class BulkAgentFactory(AgentFactory, BulkFactoryMixin):
 
         # 30% senior agents
         senior_count = int(size * 0.3)
-        agents.extend(cls.create_batch(
-            senior_count,
-            skills=["senior", "technical"],
-            max_concurrent_calls=2,
-            **kwargs
-        ))
+        agents.extend(cls.create_batch(senior_count, skills=["senior", "technical"], max_concurrent_calls=2, **kwargs))
 
         # 10% supervisors
         supervisor_count = size - junior_count - senior_count
         if supervisor_count > 0:
-            agents.extend(cls.create_batch(
-                supervisor_count,
-                skills=["supervisor", "management"],
-                max_concurrent_calls=3,
-                **kwargs
-            ))
+            agents.extend(
+                cls.create_batch(
+                    supervisor_count, skills=["supervisor", "management"], max_concurrent_calls=3, **kwargs
+                )
+            )
 
         return agents
 
@@ -580,11 +510,7 @@ class BulkAgentFactory(AgentFactory, BulkFactoryMixin):
             for queue in agent_queues:
                 agent.queues.add(queue)
 
-        return {
-            'agents': agents,
-            'queues': queues,
-            'team_size': team_size
-        }
+        return {"agents": agents, "queues": queues, "team_size": team_size}
 
 
 class BulkCallFactory(CallFactory, BulkFactoryMixin):
@@ -628,12 +554,10 @@ class BulkCallFactory(CallFactory, BulkFactoryMixin):
 
             # Create calls for this day
             from datetime import timedelta
+
             day_offset = timezone.now() - timedelta(days=day)
 
-            day_calls = cls.create_realistic_batch(
-                daily_calls,
-                created_at=day_offset
-            )
+            day_calls = cls.create_realistic_batch(daily_calls, created_at=day_offset)
             calls.extend(day_calls)
 
         return calls
@@ -643,30 +567,19 @@ class BulkCallFactory(CallFactory, BulkFactoryMixin):
 # FACTORY HELPER FUNCTIONS
 # ===========================================
 
-def setup_test_call_center(
-    agent_count: int = 10,
-    queue_count: int = 3,
-    call_count: int = 50
-) -> Dict[str, Any]:
-    """Set up a complete test call center environment."""
 
+def setup_test_call_center(agent_count: int = 10, queue_count: int = 3, call_count: int = 50) -> Dict[str, Any]:
+    """Set up a complete test call center environment."""
     # Create the team
     team_data = BulkAgentFactory.create_team_with_queues(agent_count, queue_count)
 
     # Create calls distributed across queues
     calls = []
-    for queue in team_data['queues']:
-        queue_calls = BulkCallFactory.create_realistic_batch(
-            call_count // queue_count,
-            queue=queue
-        )
+    for queue in team_data["queues"]:
+        queue_calls = BulkCallFactory.create_realistic_batch(call_count // queue_count, queue=queue)
         calls.extend(queue_calls)
 
-    return {
-        **team_data,
-        'calls': calls,
-        'total_calls': len(calls)
-    }
+    return {**team_data, "calls": calls, "total_calls": len(calls)}
 
 
 def create_stress_test_data(scale_factor: int = 1) -> Dict[str, Any]:
@@ -675,11 +588,7 @@ def create_stress_test_data(scale_factor: int = 1) -> Dict[str, Any]:
     base_queues = 10 * scale_factor
     base_calls = 1000 * scale_factor
 
-    return setup_test_call_center(
-        agent_count=base_agents,
-        queue_count=base_queues,
-        call_count=base_calls
-    )
+    return setup_test_call_center(agent_count=base_agents, queue_count=base_queues, call_count=base_calls)
 
 
 def cleanup_test_data():
@@ -687,20 +596,20 @@ def cleanup_test_data():
     models_to_clean = [Call, CallLog, Agent, Queue, PhoneNumber, User]
 
     for model in models_to_clean:
-        if hasattr(model.objects, 'filter'):
+        if hasattr(model.objects, "filter"):
             # Only delete test data (avoid deleting real data)
             test_filter = {}
 
             # Add filters to identify test data
-            if hasattr(model, 'email') and hasattr(model, 'username'):
+            if hasattr(model, "email") and hasattr(model, "username"):
                 # User model
-                test_filter = {'email__contains': '@example.com'}
-            elif hasattr(model, 'twilio_sid'):
+                test_filter = {"email__contains": "@example.com"}
+            elif hasattr(model, "twilio_sid"):
                 # Twilio-related models
-                test_filter = {'twilio_sid__startswith': 'CA'}
-            elif hasattr(model, 'name'):
+                test_filter = {"twilio_sid__startswith": "CA"}
+            elif hasattr(model, "name"):
                 # Named models
-                test_filter = {'name__contains': 'test'}
+                test_filter = {"name__contains": "test"}
 
             if test_filter:
                 model.objects.filter(**test_filter).delete()

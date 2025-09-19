@@ -14,10 +14,7 @@ class AgentQuerySet(models.QuerySet):
 
     def available(self):
         """Get available agents with optimized query."""
-        return self.filter(
-            status="available",
-            is_active=True
-        ).select_related("user")
+        return self.filter(status="available", is_active=True).select_related("user")
 
     def with_call_counts(self):
         """Annotate agents with current call counts."""
@@ -55,11 +52,11 @@ class AgentQuerySet(models.QuerySet):
             "queues",
             Prefetch(
                 "calls",
-                queryset=Call.objects.filter(
-                    status__in=["queued", "ringing", "in-progress"]
-                ).only("id", "status", "created_at", "from_number"),
-                to_attr="active_calls_list"
-            )
+                queryset=Call.objects.filter(status__in=["queued", "ringing", "in-progress"]).only(
+                    "id", "status", "created_at", "from_number"
+                ),
+                to_attr="active_calls_list",
+            ),
         )
 
 
@@ -124,11 +121,7 @@ class CallQuerySet(models.QuerySet):
         """Annotate calls with computed duration stats."""
         return self.annotate(
             computed_duration=models.Case(
-                models.When(
-                    end_time__isnull=False,
-                    start_time__isnull=False,
-                    then=F("end_time") - F("start_time")
-                ),
+                models.When(end_time__isnull=False, start_time__isnull=False, then=F("end_time") - F("start_time")),
                 default=F("duration"),
                 output_field=models.IntegerField(),
             )
@@ -136,11 +129,7 @@ class CallQuerySet(models.QuerySet):
 
     def for_analytics(self):
         """Optimized query for analytics."""
-        return self.select_related(
-            "agent__user",
-            "queue",
-            "phone_number_used"
-        ).only(
+        return self.select_related("agent__user", "queue", "phone_number_used").only(
             "id",
             "created_at",
             "status",
@@ -157,10 +146,7 @@ class CallQuerySet(models.QuerySet):
 
     def for_dashboard(self):
         """Optimized query for dashboard display."""
-        return self.select_related(
-            "agent__user",
-            "queue"
-        ).only(
+        return self.select_related("agent__user", "queue").only(
             "id",
             "public_id",
             "twilio_sid",
@@ -216,27 +202,15 @@ class QueueQuerySet(models.QuerySet):
         """Annotate queues with call counts."""
         return self.annotate(
             total_calls=Count("calls"),
-            active_calls=Count(
-                "calls",
-                filter=Q(calls__status__in=["queued", "ringing", "in-progress"])
-            ),
-            queued_calls=Count(
-                "calls",
-                filter=Q(calls__status="queued")
-            ),
+            active_calls=Count("calls", filter=Q(calls__status__in=["queued", "ringing", "in-progress"])),
+            queued_calls=Count("calls", filter=Q(calls__status="queued")),
         )
 
     def with_agent_counts(self):
         """Annotate queues with agent counts."""
         return self.annotate(
             total_agents=Count("agents", filter=Q(agents__is_active=True)),
-            available_agents=Count(
-                "agents",
-                filter=Q(
-                    agents__is_active=True,
-                    agents__status="available"
-                )
-            ),
+            available_agents=Count("agents", filter=Q(agents__is_active=True, agents__status="available")),
         )
 
     def for_dashboard(self):
@@ -246,11 +220,7 @@ class QueueQuerySet(models.QuerySet):
             .with_call_counts()
             .with_agent_counts()
             .prefetch_related(
-                Prefetch(
-                    "agents",
-                    queryset=Agent.objects.active().select_related("user"),
-                    to_attr="active_agents_list"
-                )
+                Prefetch("agents", queryset=Agent.objects.active().select_related("user"), to_attr="active_agents_list")
             )
         )
 
@@ -296,10 +266,7 @@ class CallLogQuerySet(models.QuerySet):
 
     def for_analytics(self):
         """Optimized query for analytics."""
-        return self.select_related(
-            "call",
-            "agent__user"
-        ).only(
+        return self.select_related("call", "agent__user").only(
             "id",
             "created_at",
             "event_type",
@@ -389,4 +356,4 @@ class AgentActivityManager(models.Manager):
 
 
 # Import here to avoid circular imports
-from .models import Agent, Call, CallLog, Queue, AgentActivity
+from .models import Agent, Call

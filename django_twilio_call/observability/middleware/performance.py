@@ -3,15 +3,12 @@
 import logging
 import time
 import uuid
-from typing import Any, Dict, Optional
 
-from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.urls import resolve
 from django.utils.deprecation import MiddlewareMixin
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-from prometheus_client import Counter, Histogram, Gauge
 
 from ..metrics.registry import metrics_registry
 
@@ -27,35 +24,32 @@ class PerformanceMonitoringMiddleware(MiddlewareMixin):
 
         # Initialize metrics
         self.request_count = metrics_registry.register_counter(
-            'django_requests_total',
-            'Total number of HTTP requests',
-            ['method', 'endpoint', 'status_code', 'user_type']
+            "django_requests_total", "Total number of HTTP requests", ["method", "endpoint", "status_code", "user_type"]
         )
 
         self.request_duration = metrics_registry.register_histogram(
-            'django_request_duration_seconds',
-            'HTTP request duration in seconds',
-            ['method', 'endpoint'],
-            buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+            "django_request_duration_seconds",
+            "HTTP request duration in seconds",
+            ["method", "endpoint"],
+            buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
         )
 
         self.active_requests = metrics_registry.register_gauge(
-            'django_active_requests',
-            'Number of active HTTP requests'
+            "django_active_requests", "Number of active HTTP requests"
         )
 
         self.response_size = metrics_registry.register_histogram(
-            'django_response_size_bytes',
-            'HTTP response size in bytes',
-            ['method', 'endpoint'],
-            buckets=[100, 1000, 10000, 100000, 1000000, 10000000]
+            "django_response_size_bytes",
+            "HTTP response size in bytes",
+            ["method", "endpoint"],
+            buckets=[100, 1000, 10000, 100000, 1000000, 10000000],
         )
 
         self.db_queries = metrics_registry.register_histogram(
-            'django_db_queries_per_request',
-            'Number of database queries per request',
-            ['method', 'endpoint'],
-            buckets=[1, 5, 10, 25, 50, 100]
+            "django_db_queries_per_request",
+            "Number of database queries per request",
+            ["method", "endpoint"],
+            buckets=[1, 5, 10, 25, 50, 100],
         )
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
@@ -96,11 +90,10 @@ class PerformanceMonitoringMiddleware(MiddlewareMixin):
 
         except Exception as e:
             # Handle exceptions in monitoring
-            logger.error(f"Error in performance monitoring: {e}", extra={
-                'request_id': request_id,
-                'path': request.path,
-                'method': request.method
-            })
+            logger.error(
+                f"Error in performance monitoring: {e}",
+                extra={"request_id": request_id, "path": request.path, "method": request.method},
+            )
             raise
         finally:
             # Always decrement active requests
@@ -108,27 +101,35 @@ class PerformanceMonitoringMiddleware(MiddlewareMixin):
 
     def _set_span_attributes(self, span: trace.Span, request: HttpRequest, request_id: str) -> None:
         """Set distributed tracing span attributes."""
-        span.set_attributes({
-            "http.method": request.method,
-            "http.url": request.build_absolute_uri(),
-            "http.scheme": request.scheme,
-            "http.host": request.get_host(),
-            "http.target": request.path,
-            "http.user_agent": request.META.get('HTTP_USER_AGENT', ''),
-            "request.id": request_id,
-            "user.id": getattr(request.user, 'id', None) if hasattr(request, 'user') and request.user.is_authenticated else None,
-            "user.username": getattr(request.user, 'username', None) if hasattr(request, 'user') and request.user.is_authenticated else None,
-            "request.content_length": request.META.get('CONTENT_LENGTH', 0),
-            "request.remote_addr": self._get_client_ip(request),
-        })
+        span.set_attributes(
+            {
+                "http.method": request.method,
+                "http.url": request.build_absolute_uri(),
+                "http.scheme": request.scheme,
+                "http.host": request.get_host(),
+                "http.target": request.path,
+                "http.user_agent": request.META.get("HTTP_USER_AGENT", ""),
+                "request.id": request_id,
+                "user.id": getattr(request.user, "id", None)
+                if hasattr(request, "user") and request.user.is_authenticated
+                else None,
+                "user.username": getattr(request.user, "username", None)
+                if hasattr(request, "user") and request.user.is_authenticated
+                else None,
+                "request.content_length": request.META.get("CONTENT_LENGTH", 0),
+                "request.remote_addr": self._get_client_ip(request),
+            }
+        )
 
     def _update_span_with_response(self, span: trace.Span, response: HttpResponse, duration: float) -> None:
         """Update span with response information."""
-        span.set_attributes({
-            "http.status_code": response.status_code,
-            "http.response_size": len(response.content) if hasattr(response, 'content') else 0,
-            "response.duration": duration,
-        })
+        span.set_attributes(
+            {
+                "http.status_code": response.status_code,
+                "http.response_size": len(response.content) if hasattr(response, "content") else 0,
+                "response.duration": duration,
+            }
+        )
 
         # Set span status based on HTTP status code
         if response.status_code >= 400:
@@ -136,60 +137,50 @@ class PerformanceMonitoringMiddleware(MiddlewareMixin):
         else:
             span.set_status(Status(StatusCode.OK))
 
-    def _record_metrics(self, request: HttpRequest, response: HttpResponse,
-                       duration: float, endpoint: str, user_type: str) -> None:
+    def _record_metrics(
+        self, request: HttpRequest, response: HttpResponse, duration: float, endpoint: str, user_type: str
+    ) -> None:
         """Record performance metrics."""
         method = request.method
         status_code = str(response.status_code)
 
         # Record request count
-        self.request_count.labels(
-            method=method,
-            endpoint=endpoint,
-            status_code=status_code,
-            user_type=user_type
-        ).inc()
+        self.request_count.labels(method=method, endpoint=endpoint, status_code=status_code, user_type=user_type).inc()
 
         # Record request duration
-        self.request_duration.labels(
-            method=method,
-            endpoint=endpoint
-        ).observe(duration)
+        self.request_duration.labels(method=method, endpoint=endpoint).observe(duration)
 
         # Record response size
-        response_size_bytes = len(response.content) if hasattr(response, 'content') else 0
-        self.response_size.labels(
-            method=method,
-            endpoint=endpoint
-        ).observe(response_size_bytes)
+        response_size_bytes = len(response.content) if hasattr(response, "content") else 0
+        self.response_size.labels(method=method, endpoint=endpoint).observe(response_size_bytes)
 
         # Record database queries if available
-        if hasattr(request, '_db_query_count'):
-            self.db_queries.labels(
-                method=method,
-                endpoint=endpoint
-            ).observe(request._db_query_count)
+        if hasattr(request, "_db_query_count"):
+            self.db_queries.labels(method=method, endpoint=endpoint).observe(request._db_query_count)
 
-    def _log_request(self, request: HttpRequest, response: HttpResponse,
-                    duration: float, endpoint: str, request_id: str) -> None:
+    def _log_request(
+        self, request: HttpRequest, response: HttpResponse, duration: float, endpoint: str, request_id: str
+    ) -> None:
         """Log request details with structured format."""
         log_data = {
-            'request_id': request_id,
-            'method': request.method,
-            'path': request.path,
-            'endpoint': endpoint,
-            'status_code': response.status_code,
-            'duration_ms': round(duration * 1000, 2),
-            'response_size': len(response.content) if hasattr(response, 'content') else 0,
-            'user_id': getattr(request.user, 'id', None) if hasattr(request, 'user') and request.user.is_authenticated else None,
-            'user_agent': request.META.get('HTTP_USER_AGENT', ''),
-            'client_ip': self._get_client_ip(request),
-            'referer': request.META.get('HTTP_REFERER', ''),
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.path,
+            "endpoint": endpoint,
+            "status_code": response.status_code,
+            "duration_ms": round(duration * 1000, 2),
+            "response_size": len(response.content) if hasattr(response, "content") else 0,
+            "user_id": getattr(request.user, "id", None)
+            if hasattr(request, "user") and request.user.is_authenticated
+            else None,
+            "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+            "client_ip": self._get_client_ip(request),
+            "referer": request.META.get("HTTP_REFERER", ""),
         }
 
         # Add database query count if available
-        if hasattr(request, '_db_query_count'):
-            log_data['db_queries'] = request._db_query_count
+        if hasattr(request, "_db_query_count"):
+            log_data["db_queries"] = request._db_query_count
 
         # Log at appropriate level based on status code
         if response.status_code >= 500:
@@ -211,29 +202,29 @@ class PerformanceMonitoringMiddleware(MiddlewareMixin):
 
     def _get_user_type(self, request: HttpRequest) -> str:
         """Determine user type for metrics labeling."""
-        if not hasattr(request, 'user') or not request.user.is_authenticated:
-            return 'anonymous'
+        if not hasattr(request, "user") or not request.user.is_authenticated:
+            return "anonymous"
 
         if request.user.is_superuser:
-            return 'superuser'
+            return "superuser"
         elif request.user.is_staff:
-            return 'staff'
-        elif hasattr(request.user, 'agent_profile'):
-            return 'agent'
+            return "staff"
+        elif hasattr(request.user, "agent_profile"):
+            return "agent"
         else:
-            return 'user'
+            return "user"
 
     def _get_client_ip(self, request: HttpRequest) -> str:
         """Get real client IP address."""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if x_forwarded_for:
-            return x_forwarded_for.split(',')[0].strip()
+            return x_forwarded_for.split(",")[0].strip()
 
-        x_real_ip = request.META.get('HTTP_X_REAL_IP')
+        x_real_ip = request.META.get("HTTP_X_REAL_IP")
         if x_real_ip:
             return x_real_ip
 
-        return request.META.get('REMOTE_ADDR', 'unknown')
+        return request.META.get("REMOTE_ADDR", "unknown")
 
 
 class DatabaseQueryCountMiddleware(MiddlewareMixin):

@@ -4,11 +4,10 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum
-from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime, timedelta
+from enum import Enum
+from typing import Any, Callable, Dict, Optional
 
-import redis
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
@@ -19,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 class HealthStatus(Enum):
     """Health check status enumeration."""
+
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
@@ -27,6 +27,7 @@ class HealthStatus(Enum):
 @dataclass
 class HealthCheckResult:
     """Result of a health check."""
+
     name: str
     status: HealthStatus
     message: str
@@ -62,7 +63,7 @@ class HealthCheck(ABC):
                     message=f"Check completed but took {duration_ms:.2f}ms (timeout: {self.timeout * 1000}ms)",
                     duration_ms=duration_ms,
                     timestamp=timezone.now(),
-                    details=result if isinstance(result, dict) else {}
+                    details=result if isinstance(result, dict) else {},
                 )
 
             return HealthCheckResult(
@@ -71,7 +72,7 @@ class HealthCheck(ABC):
                 message="OK",
                 duration_ms=duration_ms,
                 timestamp=timezone.now(),
-                details=result if isinstance(result, dict) else {}
+                details=result if isinstance(result, dict) else {},
             )
 
         except Exception as e:
@@ -82,7 +83,7 @@ class HealthCheck(ABC):
                 message=str(e),
                 duration_ms=duration_ms,
                 timestamp=timezone.now(),
-                details={"error": str(e)}
+                details={"error": str(e)},
             )
 
 
@@ -109,14 +110,11 @@ class DatabaseHealthCheck(HealthCheck):
         # Check for slow queries if debug is enabled
         slow_queries = 0
         if settings.DEBUG:
-            slow_queries = len([
-                query for query in connection.queries
-                if float(query.get('time', 0)) > 0.1
-            ])
+            slow_queries = len([query for query in connection.queries if float(query.get("time", 0)) > 0.1])
 
         return {
-            "database": db_settings.get('NAME', 'unknown'),
-            "engine": db_settings.get('ENGINE', 'unknown'),
+            "database": db_settings.get("NAME", "unknown"),
+            "engine": db_settings.get("ENGINE", "unknown"),
             "connection_count": len(connection.queries) if settings.DEBUG else None,
             "slow_queries": slow_queries,
         }
@@ -147,9 +145,9 @@ class RedisHealthCheck(HealthCheck):
         # Get Redis info if using django-redis
         redis_info = {}
         try:
-            if hasattr(cache, '_cache') and hasattr(cache._cache, '_client'):
+            if hasattr(cache, "_cache") and hasattr(cache._cache, "_client"):
                 redis_client = cache._cache._client.get_client()
-                if hasattr(redis_client, 'info'):
+                if hasattr(redis_client, "info"):
                     info = redis_client.info()
                     redis_info = {
                         "used_memory_human": info.get("used_memory_human", "unknown"),
@@ -195,10 +193,10 @@ class CeleryHealthCheck(HealthCheck):
             failed_tasks = 0
             try:
                 from ...models import TaskExecution
+
                 yesterday = timezone.now() - timedelta(hours=24)
                 failed_tasks = TaskExecution.objects.filter(
-                    status=TaskExecution.Status.FAILURE,
-                    created_at__gte=yesterday
+                    status=TaskExecution.Status.FAILURE, created_at__gte=yesterday
                 ).count()
             except Exception:
                 pass
@@ -236,10 +234,10 @@ class TwilioHealthCheck(HealthCheck):
             api_errors = 0
             try:
                 from ...models import WebhookLog
+
                 yesterday = timezone.now() - timedelta(hours=24)
                 api_errors = WebhookLog.objects.filter(
-                    status=WebhookLog.Status.FAILED,
-                    created_at__gte=yesterday
+                    status=WebhookLog.Status.FAILED, created_at__gte=yesterday
                 ).count()
             except Exception:
                 pass
@@ -267,13 +265,10 @@ class CallCenterHealthCheck(HealthCheck):
     def _check_call_center(self) -> Dict[str, Any]:
         """Perform call center health check."""
         try:
-            from ...models import Agent, Queue, Call
+            from ...models import Agent, Call, Queue
 
             # Check active agents
-            active_agents = Agent.objects.filter(
-                is_active=True,
-                status=Agent.Status.AVAILABLE
-            ).count()
+            active_agents = Agent.objects.filter(is_active=True, status=Agent.Status.AVAILABLE).count()
 
             # Check active queues
             active_queues = Queue.objects.filter(is_active=True).count()
@@ -285,10 +280,7 @@ class CallCenterHealthCheck(HealthCheck):
 
             # Check for stuck calls (in queue for > 10 minutes)
             ten_minutes_ago = timezone.now() - timedelta(minutes=10)
-            stuck_calls = Call.objects.filter(
-                status=Call.Status.QUEUED,
-                created_at__lt=ten_minutes_ago
-            ).count()
+            stuck_calls = Call.objects.filter(status=Call.Status.QUEUED, created_at__lt=ten_minutes_ago).count()
 
             # Warn if no agents available
             status = HealthStatus.HEALTHY
@@ -312,7 +304,7 @@ class CallCenterHealthCheck(HealthCheck):
                     "active_queues": active_queues,
                     "active_calls": active_calls,
                     "stuck_calls": stuck_calls,
-                }
+                },
             )
 
             return result.details
@@ -369,7 +361,7 @@ class HealthCheckRegistry:
                     message=f"Check failed: {e}",
                     duration_ms=0,
                     timestamp=timezone.now(),
-                    details={"error": str(e)}
+                    details={"error": str(e)},
                 )
 
         return results

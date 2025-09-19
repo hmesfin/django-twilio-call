@@ -1,5 +1,4 @@
-"""
-Phone number management views for django-twilio-call.
+"""Phone number management views for django-twilio-call.
 
 Handles CRUD operations and Twilio synchronization for phone numbers.
 """
@@ -43,8 +42,7 @@ class PhoneNumberViewSet(BaseCallCenterViewSet, TwilioServiceMixin):
 
     @action(detail=False, methods=["post"], permission_classes=[IsAuthenticated])
     def sync_from_twilio(self, request):
-        """
-        Sync phone numbers from Twilio account.
+        """Sync phone numbers from Twilio account.
 
         Retrieves all phone numbers from the associated Twilio account
         and creates or updates local records accordingly.
@@ -82,8 +80,7 @@ class PhoneNumberViewSet(BaseCallCenterViewSet, TwilioServiceMixin):
 
     @action(detail=True, methods=["post"])
     def refresh_from_twilio(self, request, public_id=None):
-        """
-        Refresh a specific phone number from Twilio.
+        """Refresh a specific phone number from Twilio.
 
         Updates the local phone number record with the latest data from Twilio.
         """
@@ -107,25 +104,18 @@ class PhoneNumberViewSet(BaseCallCenterViewSet, TwilioServiceMixin):
 
     @action(detail=True, methods=["patch"])
     def update_friendly_name(self, request, public_id=None):
-        """
-        Update the friendly name of a phone number both locally and in Twilio.
-        """
+        """Update the friendly name of a phone number both locally and in Twilio."""
         phone_number = self.get_object()
         friendly_name = request.data.get("friendly_name")
 
         if not friendly_name:
             return self.handle_error(
-                ValueError("friendly_name is required"),
-                "update friendly name",
-                status_code=status.HTTP_400_BAD_REQUEST
+                ValueError("friendly_name is required"), "update friendly name", status_code=status.HTTP_400_BAD_REQUEST
             )
 
         try:
             # Update in Twilio first
-            twilio_service.update_phone_number(
-                phone_number.twilio_sid,
-                {"friendly_name": friendly_name}
-            )
+            twilio_service.update_phone_number(phone_number.twilio_sid, {"friendly_name": friendly_name})
 
             # Update local record
             phone_number.friendly_name = friendly_name
@@ -141,8 +131,7 @@ class PhoneNumberViewSet(BaseCallCenterViewSet, TwilioServiceMixin):
 
     @action(detail=False, methods=["get"])
     def available_numbers(self, request):
-        """
-        Get available phone numbers for purchase from Twilio.
+        """Get available phone numbers for purchase from Twilio.
 
         Query parameters:
         - country_code: ISO country code (default: US)
@@ -173,8 +162,7 @@ class PhoneNumberViewSet(BaseCallCenterViewSet, TwilioServiceMixin):
 
     @action(detail=False, methods=["post"])
     def purchase_number(self, request):
-        """
-        Purchase a phone number from Twilio.
+        """Purchase a phone number from Twilio.
 
         Required data:
         - phone_number: The phone number to purchase
@@ -185,9 +173,7 @@ class PhoneNumberViewSet(BaseCallCenterViewSet, TwilioServiceMixin):
 
         if not phone_number:
             return self.handle_error(
-                ValueError("phone_number is required"),
-                "purchase number",
-                status_code=status.HTTP_400_BAD_REQUEST
+                ValueError("phone_number is required"), "purchase number", status_code=status.HTTP_400_BAD_REQUEST
             )
 
         try:
@@ -214,8 +200,7 @@ class PhoneNumberViewSet(BaseCallCenterViewSet, TwilioServiceMixin):
 
     @action(detail=True, methods=["delete"])
     def release_number(self, request, public_id=None):
-        """
-        Release a phone number back to Twilio (delete from account).
+        """Release a phone number back to Twilio (delete from account).
 
         This action is irreversible and will remove the number from both
         Twilio and the local database.

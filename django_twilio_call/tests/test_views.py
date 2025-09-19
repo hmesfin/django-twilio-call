@@ -1,6 +1,5 @@
 """Integration tests for API views."""
 
-import json
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
@@ -112,10 +111,7 @@ class QueueViewSetTest(BaseAPITestCase):
         response = self.client.post(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            Call.objects.filter(queue=self.queue, status=Call.Status.QUEUED).count(),
-            0
-        )
+        self.assertEqual(Call.objects.filter(queue=self.queue, status=Call.Status.QUEUED).count(), 0)
 
 
 class AgentViewSetTest(BaseAPITestCase):

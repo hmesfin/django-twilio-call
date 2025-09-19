@@ -104,20 +104,13 @@ call_schemas = {
                             "status": "completed",
                             "duration": 120,
                             "queue_time": 15,
-                            "agent": {
-                                "id": 5,
-                                "name": "John Doe",
-                                "extension": "1001"
-                            },
-                            "queue": {
-                                "id": 2,
-                                "name": "support"
-                            },
+                            "agent": {"id": 5, "name": "John Doe", "extension": "1001"},
+                            "queue": {"id": 2, "name": "support"},
                             "created_at": "2024-01-15T10:30:00Z",
                             "answered_at": "2024-01-15T10:30:15Z",
-                            "ended_at": "2024-01-15T10:32:15Z"
+                            "ended_at": "2024-01-15T10:32:15Z",
                         }
-                    ]
+                    ],
                 },
                 response_only=True,
             ),
@@ -152,24 +145,24 @@ call_schemas = {
                     "to_number": {
                         "type": "string",
                         "description": "Destination phone number in E.164 format",
-                        "example": "+14155551234"
+                        "example": "+14155551234",
                     },
                     "from_number": {
                         "type": "string",
                         "description": "Caller ID number (must be a Twilio number)",
-                        "example": "+14155555678"
+                        "example": "+14155555678",
                     },
                     "agent_id": {
                         "type": "integer",
                         "description": "Optional agent to assign the call to",
-                        "example": 5
+                        "example": 5,
                     },
                     "url": {
                         "type": "string",
                         "description": "TwiML URL for call instructions",
-                        "example": "https://api.example.com/webhooks/voice/"
-                    }
-                }
+                        "example": "https://api.example.com/webhooks/voice/",
+                    },
+                },
             }
         },
         responses={
@@ -182,26 +175,18 @@ call_schemas = {
                         "public_id": {"type": "string"},
                         "twilio_sid": {"type": "string"},
                         "status": {"type": "string"},
-                    }
-                }
+                    },
+                },
             ),
             400: OpenApiResponse(
                 description="Invalid request data",
-                response={
-                    "type": "object",
-                    "properties": {
-                        "error": {"type": "string"}
-                    }
-                }
+                response={"type": "object", "properties": {"error": {"type": "string"}}},
             ),
         },
         examples=[
             OpenApiExample(
                 "Basic Call",
-                value={
-                    "to_number": "+14155551234",
-                    "from_number": "+14155555678"
-                },
+                value={"to_number": "+14155551234", "from_number": "+14155555678"},
                 request_only=True,
             ),
             OpenApiExample(
@@ -210,7 +195,7 @@ call_schemas = {
                     "to_number": "+14155551234",
                     "from_number": "+14155555678",
                     "agent_id": 5,
-                    "url": "https://api.example.com/webhooks/voice/"
+                    "url": "https://api.example.com/webhooks/voice/",
                 },
                 request_only=True,
             ),
@@ -253,8 +238,8 @@ call_schemas = {
                         "type": "boolean",
                         "description": "Whether to perform warm transfer",
                         "default": False,
-                    }
-                }
+                    },
+                },
             }
         },
     ),
@@ -289,8 +274,8 @@ agent_schemas = {
                         "success": {"type": "boolean"},
                         "message": {"type": "string"},
                         "agent": {"type": "object"},
-                    }
-                }
+                    },
+                },
             ),
         },
     ),
@@ -328,9 +313,9 @@ agent_schemas = {
                     "reason": {
                         "type": "string",
                         "description": "Optional reason for status change",
-                        "example": "Lunch break"
-                    }
-                }
+                        "example": "Lunch break",
+                    },
+                },
             }
         },
     ),
@@ -373,8 +358,8 @@ queue_schemas = {
                         "total_agents": {"type": "integer", "example": 8},
                         "service_level": {"type": "number", "example": 85.5},
                         "abandoned_rate": {"type": "number", "example": 5.2},
-                    }
-                }
+                    },
+                },
             ),
         },
     ),

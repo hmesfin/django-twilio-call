@@ -1,5 +1,4 @@
-"""
-Base views and mixins for django-twilio-call.
+"""Base views and mixins for django-twilio-call.
 
 Provides common functionality and error handling patterns used across
 all ViewSets in the call center system.
@@ -8,20 +7,18 @@ all ViewSets in the call center system.
 import csv
 import hashlib
 import hmac
-import io
 import json
 import logging
 from datetime import timedelta
-from typing import Any, Dict, Type
+from typing import Any, Dict
 
 from django.db import transaction
-from django.db.models import QuerySet, Count, Avg, Sum, Max, Min
+from django.db.models import Count, QuerySet
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ..exceptions import CallServiceError, QueueServiceError
@@ -31,8 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class ErrorHandlingMixin:
-    """
-    Mixin to provide centralized error handling for ViewSets.
+    """Mixin to provide centralized error handling for ViewSets.
 
     Standardizes error responses and logging across all views.
     """
@@ -42,10 +38,9 @@ class ErrorHandlingMixin:
         error: Exception,
         action: str,
         context: Dict[str, Any] = None,
-        status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR
+        status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
     ) -> Response:
-        """
-        Handle errors with consistent logging and response format.
+        """Handle errors with consistent logging and response format.
 
         Args:
             error: The exception that occurred
@@ -55,6 +50,7 @@ class ErrorHandlingMixin:
 
         Returns:
             Response: Standardized error response
+
         """
         context = context or {}
         error_message = str(error)
@@ -63,12 +59,12 @@ class ErrorHandlingMixin:
         logger.error(
             f"Error in {action}: {error_message}",
             extra={
-                'error_type': type(error).__name__,
-                'action': action,
-                'context': context,
-                'view_class': self.__class__.__name__,
+                "error_type": type(error).__name__,
+                "action": action,
+                "context": context,
+                "view_class": self.__class__.__name__,
             },
-            exc_info=True
+            exc_info=True,
         )
 
         # Determine appropriate status code based on error type
@@ -90,13 +86,9 @@ class ErrorHandlingMixin:
         )
 
     def success_response(
-        self,
-        data: Any = None,
-        message: str = None,
-        status_code: int = status.HTTP_200_OK
+        self, data: Any = None, message: str = None, status_code: int = status.HTTP_200_OK
     ) -> Response:
-        """
-        Create a standardized success response.
+        """Create a standardized success response.
 
         Args:
             data: Response data
@@ -105,6 +97,7 @@ class ErrorHandlingMixin:
 
         Returns:
             Response: Standardized success response
+
         """
         response_data = {"success": True}
 
@@ -118,21 +111,20 @@ class ErrorHandlingMixin:
 
 
 class PermissionFilterMixin:
-    """
-    Mixin to provide common permission-based filtering.
+    """Mixin to provide common permission-based filtering.
 
     Handles filtering querysets based on user permissions and ownership.
     """
 
     def filter_queryset_by_user(self, queryset: QuerySet) -> QuerySet:
-        """
-        Filter queryset based on user permissions.
+        """Filter queryset based on user permissions.
 
         Args:
             queryset: Base queryset to filter
 
         Returns:
             QuerySet: Filtered queryset
+
         """
         user = self.request.user
 
@@ -145,11 +137,11 @@ class PermissionFilterMixin:
             return queryset
 
         # Regular users see only their own data
-        if hasattr(queryset.model, 'user'):
+        if hasattr(queryset.model, "user"):
             return queryset.filter(user=user)
 
         # For agent-related models
-        if hasattr(queryset.model, 'agent') and hasattr(user, 'agent_profile'):
+        if hasattr(queryset.model, "agent") and hasattr(user, "agent_profile"):
             return queryset.filter(agent=user.agent_profile)
 
         return queryset
@@ -161,8 +153,7 @@ class PermissionFilterMixin:
 
 
 class BaseCallCenterViewSet(ErrorHandlingMixin, PermissionFilterMixin, viewsets.ModelViewSet):
-    """
-    Base ViewSet for call center models.
+    """Base ViewSet for call center models.
 
     Combines error handling, permission filtering, and common functionality.
     """
@@ -178,8 +169,8 @@ class BaseCallCenterViewSet(ErrorHandlingMixin, PermissionFilterMixin, viewsets.
         queryset = self.filter_queryset_by_user(queryset)
 
         # Order by creation date by default
-        if hasattr(queryset.model, 'created_at'):
-            queryset = queryset.order_by('-created_at')
+        if hasattr(queryset.model, "created_at"):
+            queryset = queryset.order_by("-created_at")
 
         return queryset
 
@@ -212,8 +203,7 @@ class BaseCallCenterViewSet(ErrorHandlingMixin, PermissionFilterMixin, viewsets.
 
 
 class AgentAccessMixin:
-    """
-    Mixin for views that require agent access.
+    """Mixin for views that require agent access.
 
     Provides helper methods for agent-specific functionality.
     """
@@ -222,7 +212,7 @@ class AgentAccessMixin:
 
     def get_current_agent(self):
         """Get the current user's agent profile."""
-        if hasattr(self.request.user, 'agent_profile'):
+        if hasattr(self.request.user, "agent_profile"):
             return self.request.user.agent_profile
         return None
 
@@ -233,15 +223,13 @@ class AgentAccessMixin:
 
 
 class TwilioServiceMixin:
-    """
-    Mixin for views that interact with Twilio services.
+    """Mixin for views that interact with Twilio services.
 
     Provides error handling specific to Twilio API operations.
     """
 
     def handle_twilio_error(self, error: Exception, action: str) -> Response:
-        """
-        Handle Twilio-specific errors.
+        """Handle Twilio-specific errors.
 
         Args:
             error: Twilio error
@@ -249,6 +237,7 @@ class TwilioServiceMixin:
 
         Returns:
             Response: Error response
+
         """
         # Map common Twilio errors to appropriate status codes
         error_message = str(error)
@@ -262,43 +251,34 @@ class TwilioServiceMixin:
         else:
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
 
-        return self.handle_error(
-            error,
-            f"Twilio {action}",
-            {"service": "twilio"},
-            status_code
-        )
+        return self.handle_error(error, f"Twilio {action}", {"service": "twilio"}, status_code)
 
 
 class PaginatedResponseMixin:
-    """
-    Mixin to provide consistent pagination responses.
-    """
+    """Mixin to provide consistent pagination responses."""
 
     def get_paginated_response_data(self, data: Any) -> Dict[str, Any]:
-        """
-        Get paginated response data in a consistent format.
+        """Get paginated response data in a consistent format.
 
         Args:
             data: Paginated data
 
         Returns:
             Dict: Response data with pagination info
+
         """
-        if hasattr(self, 'paginator') and self.paginator is not None:
+        if hasattr(self, "paginator") and self.paginator is not None:
             return self.paginator.get_paginated_response(data).data
         return data
 
 
 class StatisticsMixin:
-    """
-    Mixin to add common statistics endpoints to ViewSets.
+    """Mixin to add common statistics endpoints to ViewSets.
 
     Provides endpoints like /statistics/, /metrics/, and /summary/.
     """
 
-
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=["get"])
     def statistics(self, request):
         """Get basic statistics for this model."""
         try:
@@ -308,46 +288,44 @@ class StatisticsMixin:
             total_count = queryset.count()
 
             stats = {
-                'total_count': total_count,
-                'model': self.queryset.model.__name__.lower(),
+                "total_count": total_count,
+                "model": self.queryset.model.__name__.lower(),
             }
 
             # Add time-based stats if created_at exists
-            if hasattr(self.queryset.model, 'created_at'):
+            if hasattr(self.queryset.model, "created_at"):
                 now = timezone.now()
                 today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
                 week_start = now - timedelta(days=7)
                 month_start = now - timedelta(days=30)
 
-                stats.update({
-                    'today_count': queryset.filter(created_at__gte=today_start).count(),
-                    'week_count': queryset.filter(created_at__gte=week_start).count(),
-                    'month_count': queryset.filter(created_at__gte=month_start).count(),
-                })
+                stats.update(
+                    {
+                        "today_count": queryset.filter(created_at__gte=today_start).count(),
+                        "week_count": queryset.filter(created_at__gte=week_start).count(),
+                        "month_count": queryset.filter(created_at__gte=month_start).count(),
+                    }
+                )
 
             # Add status breakdown if status field exists
-            if hasattr(self.queryset.model, 'status'):
-                status_counts = list(
-                    queryset.values('status')
-                    .annotate(count=Count('id'))
-                    .order_by('-count')
-                )
-                stats['status_breakdown'] = status_counts
+            if hasattr(self.queryset.model, "status"):
+                status_counts = list(queryset.values("status").annotate(count=Count("id")).order_by("-count"))
+                stats["status_breakdown"] = status_counts
 
             return self.success_response(data=stats)
 
         except Exception as e:
             return self.handle_error(e, "getting statistics")
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=["get"])
     def summary(self, request):
         """Get a summary view of key metrics."""
         try:
             queryset = self.get_queryset()
 
             summary = {
-                'model': self.queryset.model.__name__.lower(),
-                'total': queryset.count(),
+                "model": self.queryset.model.__name__.lower(),
+                "total": queryset.count(),
             }
 
             # Add model-specific summary logic
@@ -364,14 +342,12 @@ class StatisticsMixin:
 
 
 class BulkOperationsMixin:
-    """
-    Mixin to add bulk operations support to ViewSets.
+    """Mixin to add bulk operations support to ViewSets.
 
     Provides endpoints for bulk create, update, and delete operations.
     """
 
-
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=["post"])
     def bulk_create(self, request):
         """Create multiple objects in a single request."""
         try:
@@ -382,22 +358,18 @@ class BulkOperationsMixin:
                     return self.success_response(
                         data=self.get_serializer(instances, many=True).data,
                         message=f"Created {len(instances)} objects",
-                        status_code=status.HTTP_201_CREATED
+                        status_code=status.HTTP_201_CREATED,
                     )
             else:
                 return Response(
-                    {
-                        "success": False,
-                        "errors": serializer.errors,
-                        "message": "Validation failed for bulk create"
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"success": False, "errors": serializer.errors, "message": "Validation failed for bulk create"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
         except Exception as e:
             return self.handle_error(e, "bulk create")
 
-    @action(detail=False, methods=['patch'])
+    @action(detail=False, methods=["patch"])
     def bulk_update(self, request):
         """Update multiple objects in a single request."""
         try:
@@ -406,9 +378,9 @@ class BulkOperationsMixin:
                     {
                         "success": False,
                         "error": "Expected a list of objects with 'id' and update data",
-                        "message": "Invalid bulk update format"
+                        "message": "Invalid bulk update format",
                     },
-                    status=status.HTTP_400_BAD_REQUEST
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             updated_objects = []
@@ -417,13 +389,13 @@ class BulkOperationsMixin:
             with transaction.atomic():
                 for item in request.data:
                     try:
-                        obj_id = item.get('id') or item.get('public_id')
+                        obj_id = item.get("id") or item.get("public_id")
                         if not obj_id:
                             errors.append({"error": "Missing id/public_id", "data": item})
                             continue
 
                         # Get the object
-                        lookup_field = self.lookup_field or 'pk'
+                        lookup_field = self.lookup_field or "pk"
                         lookup_value = obj_id
                         instance = self.get_queryset().get(**{lookup_field: lookup_value})
 
@@ -454,19 +426,15 @@ class BulkOperationsMixin:
         except Exception as e:
             return self.handle_error(e, "bulk update")
 
-    @action(detail=False, methods=['delete'])
+    @action(detail=False, methods=["delete"])
     def bulk_delete(self, request):
         """Delete multiple objects in a single request."""
         try:
-            ids = request.data.get('ids', [])
+            ids = request.data.get("ids", [])
             if not ids:
                 return Response(
-                    {
-                        "success": False,
-                        "error": "No IDs provided",
-                        "message": "Expected 'ids' array in request body"
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"success": False, "error": "No IDs provided", "message": "Expected 'ids' array in request body"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             deleted_count = 0
@@ -475,7 +443,7 @@ class BulkOperationsMixin:
             with transaction.atomic():
                 for obj_id in ids:
                     try:
-                        lookup_field = self.lookup_field or 'pk'
+                        lookup_field = self.lookup_field or "pk"
                         instance = self.get_queryset().get(**{lookup_field: obj_id})
                         instance.delete()
                         deleted_count += 1
@@ -500,14 +468,12 @@ class BulkOperationsMixin:
 
 
 class ExportMixin:
-    """
-    Mixin to add CSV/JSON export functionality to ViewSets.
+    """Mixin to add CSV/JSON export functionality to ViewSets.
 
     Provides endpoints for exporting data in various formats.
     """
 
-
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=["get"])
     def export_csv(self, request):
         """Export queryset data as CSV."""
         try:
@@ -518,13 +484,13 @@ class ExportMixin:
             field_names = self._get_export_fields()
 
             # Create CSV response
-            response = HttpResponse(content_type='text/csv')
-            response['Content-Disposition'] = f'attachment; filename="{model.__name__.lower()}_export.csv"'
+            response = HttpResponse(content_type="text/csv")
+            response["Content-Disposition"] = f'attachment; filename="{model.__name__.lower()}_export.csv"'
 
             writer = csv.writer(response)
 
             # Write headers
-            headers = [field.replace('_', ' ').title() for field in field_names]
+            headers = [field.replace("_", " ").title() for field in field_names]
             writer.writerow(headers)
 
             # Write data rows
@@ -532,7 +498,7 @@ class ExportMixin:
                 row = []
                 for field_name in field_names:
                     value = self._get_field_value(obj, field_name)
-                    row.append(str(value) if value is not None else '')
+                    row.append(str(value) if value is not None else "")
                 writer.writerow(row)
 
             return response
@@ -540,7 +506,7 @@ class ExportMixin:
         except Exception as e:
             return self.handle_error(e, "CSV export")
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=["get"])
     def export_json(self, request):
         """Export queryset data as JSON."""
         try:
@@ -552,14 +518,14 @@ class ExportMixin:
                 "model": self.queryset.model.__name__.lower(),
                 "count": len(serializer.data),
                 "exported_at": timezone.now().isoformat(),
-                "data": serializer.data
+                "data": serializer.data,
             }
 
             response = HttpResponse(
-                content_type='application/json',
+                content_type="application/json",
                 headers={
-                    'Content-Disposition': f'attachment; filename="{self.queryset.model.__name__.lower()}_export.json"'
-                }
+                    "Content-Disposition": f'attachment; filename="{self.queryset.model.__name__.lower()}_export.json"'
+                },
             )
 
             json.dump(response_data, response, indent=2, default=str)
@@ -571,7 +537,7 @@ class ExportMixin:
     def _get_export_fields(self):
         """Get fields to include in export. Override for custom fields."""
         model = self.queryset.model
-        exclude_fields = {'password', 'metadata', 'id'}
+        exclude_fields = {"password", "metadata", "id"}
 
         fields = []
         for field in model._meta.fields:
@@ -586,11 +552,11 @@ class ExportMixin:
             value = getattr(obj, field_name)
 
             # Handle foreign key relationships
-            if hasattr(value, '__call__'):
+            if callable(value):
                 return None
 
             # Handle datetime objects
-            if hasattr(value, 'isoformat'):
+            if hasattr(value, "isoformat"):
                 return value.isoformat()
 
             return value
@@ -599,33 +565,25 @@ class ExportMixin:
 
 
 class WebhookMixin:
-    """
-    Mixin to add webhook handling patterns to ViewSets.
+    """Mixin to add webhook handling patterns to ViewSets.
 
     Provides common webhook validation and processing patterns.
     """
 
-
-    @action(detail=False, methods=['post'], permission_classes=[])
+    @action(detail=False, methods=["post"], permission_classes=[])
     def webhook(self, request):
         """Handle incoming webhook requests."""
         try:
             # Validate webhook signature if configured
-            if hasattr(self, 'webhook_secret') and self.webhook_secret:
+            if hasattr(self, "webhook_secret") and self.webhook_secret:
                 if not self._validate_webhook_signature(request):
-                    return Response(
-                        {"error": "Invalid webhook signature"},
-                        status=status.HTTP_401_UNAUTHORIZED
-                    )
+                    return Response({"error": "Invalid webhook signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
             # Process webhook data
             webhook_data = request.data
             result = self._process_webhook(webhook_data, request)
 
-            return self.success_response(
-                data=result,
-                message="Webhook processed successfully"
-            )
+            return self.success_response(data=result, message="Webhook processed successfully")
 
         except Exception as e:
             return self.handle_error(e, "webhook processing")
@@ -633,15 +591,11 @@ class WebhookMixin:
     def _validate_webhook_signature(self, request):
         """Validate webhook signature. Override for specific webhook providers."""
         # Generic HMAC validation
-        signature_header = request.META.get('HTTP_X_SIGNATURE')
+        signature_header = request.META.get("HTTP_X_SIGNATURE")
         if not signature_header:
             return False
 
-        expected_signature = hmac.new(
-            self.webhook_secret.encode('utf-8'),
-            request.body,
-            hashlib.sha256
-        ).hexdigest()
+        expected_signature = hmac.new(self.webhook_secret.encode("utf-8"), request.body, hashlib.sha256).hexdigest()
 
         return hmac.compare_digest(signature_header, f"sha256={expected_signature}")
 
@@ -656,10 +610,9 @@ class ReadOnlyCallCenterViewSet(
     PaginatedResponseMixin,
     StatisticsMixin,
     ExportMixin,
-    viewsets.ReadOnlyModelViewSet
+    viewsets.ReadOnlyModelViewSet,
 ):
-    """
-    Base read-only ViewSet for call center models.
+    """Base read-only ViewSet for call center models.
 
     For models that should only support read operations.
     Includes statistics and export functionality.
@@ -673,8 +626,8 @@ class ReadOnlyCallCenterViewSet(
         queryset = super().get_queryset()
         queryset = self.filter_queryset_by_user(queryset)
 
-        if hasattr(queryset.model, 'created_at'):
-            queryset = queryset.order_by('-created_at')
+        if hasattr(queryset.model, "created_at"):
+            queryset = queryset.order_by("-created_at")
 
         return queryset
 
@@ -687,10 +640,9 @@ class EnhancedCallCenterViewSet(
     BulkOperationsMixin,
     ExportMixin,
     WebhookMixin,
-    BaseCallCenterViewSet
+    BaseCallCenterViewSet,
 ):
-    """
-    Enhanced ViewSet with all mixins for full-featured endpoints.
+    """Enhanced ViewSet with all mixins for full-featured endpoints.
 
     Includes statistics, bulk operations, export, and webhook support.
     """
@@ -700,11 +652,9 @@ class EnhancedCallCenterViewSet(
         summary = {}
 
         # Add common patterns
-        if hasattr(self.queryset.model, 'status'):
-            summary['status_distribution'] = dict(
-                queryset.values_list('status', flat=True)
-                .annotate(count=Count('id'))
-                .values_list('status', 'count')
+        if hasattr(self.queryset.model, "status"):
+            summary["status_distribution"] = dict(
+                queryset.values_list("status", flat=True).annotate(count=Count("id")).values_list("status", "count")
             )
 
         return summary

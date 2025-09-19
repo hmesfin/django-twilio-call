@@ -1,6 +1,6 @@
 """Mock Twilio responses for testing."""
 
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 
 class MockTwilioCall:

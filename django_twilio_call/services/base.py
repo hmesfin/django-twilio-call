@@ -1,24 +1,30 @@
 """Base service class with common patterns for all services."""
 
 import logging
-from typing import Any, Dict, List, Optional, Type, Union
 from functools import wraps
+from typing import Any, Dict, List, Optional, Type
 
 from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from ..conf import get_config, get_cache_timeout
+from ..constants import CacheTimeouts, DefaultValues, Limits
+
 logger = logging.getLogger(__name__)
 
 
-def cache_result(timeout: int = 300, key_prefix: str = ""):
+def cache_result(timeout: Optional[int] = None, key_prefix: str = "", service_type: str = "default"):
     """Decorator to cache method results.
 
     Args:
-        timeout: Cache timeout in seconds (default 5 minutes)
+        timeout: Cache timeout in seconds (uses service-specific default if None)
         key_prefix: Optional prefix for cache key
+        service_type: Service type for timeout configuration
+
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
@@ -27,7 +33,7 @@ def cache_result(timeout: int = 300, key_prefix: str = ""):
                 key_prefix or self.__class__.__name__,
                 func.__name__,
                 str(args),
-                str(sorted(kwargs.items()))
+                str(sorted(kwargs.items())),
             ]
             cache_key = "_".join(cache_key_parts).replace(" ", "")[:250]  # Limit key length
 
@@ -39,10 +45,15 @@ def cache_result(timeout: int = 300, key_prefix: str = ""):
 
             # Execute method and cache result
             result = func(self, *args, **kwargs)
-            cache.set(cache_key, result, timeout)
-            logger.debug(f"Cached result for {cache_key}")
+
+            # Use configured timeout if not provided
+            actual_timeout = timeout if timeout is not None else get_cache_timeout(service_type)
+            cache.set(cache_key, result, actual_timeout)
+            logger.debug(f"Cached result for {cache_key} (timeout: {actual_timeout}s)")
             return result
+
         return wrapper
+
     return decorator
 
 
@@ -51,7 +62,9 @@ def log_execution(level: int = logging.INFO):
 
     Args:
         level: Logging level (default INFO)
+
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
@@ -65,35 +78,46 @@ def log_execution(level: int = logging.INFO):
             except Exception as e:
                 logger.error(f"Error in {method_name}: {e}")
                 raise
+
         return wrapper
+
     return decorator
 
 
 class ServiceError(Exception):
     """Base exception for service layer errors."""
+
     pass
 
 
 class ValidationError(ServiceError):
     """Raised when service validation fails."""
+
     pass
 
 
 class BusinessLogicError(ServiceError):
     """Raised when business logic constraints are violated."""
+
     pass
 
 
 class BaseService:
     """Base service class providing common patterns and utilities."""
 
-    # Service configuration
-    cache_timeout = 300  # 5 minutes default cache
-    log_level = logging.INFO
+    # Service configuration - will be loaded from centralized config
+    service_type = "default"  # Override in subclasses
 
     def __init__(self):
         """Initialize base service."""
         self.logger = logging.getLogger(f"{self.__module__}.{self.__class__.__name__}")
+        self.config = get_config()
+
+        # Load service-specific configuration
+        self.cache_timeout = self.config.get_cache_timeout(self.service_type)
+        self.log_level = getattr(logging, self.config.LOG_LEVEL)
+        self.batch_size = self.config.get_batch_size(self.service_type)
+        self.retry_config = self.config.get_retry_config(self.service_type)
 
     # ===========================================
     # CACHING UTILITIES
@@ -107,6 +131,7 @@ class BaseService:
 
         Returns:
             Cache key string
+
         """
         key_parts = [self.__class__.__name__] + list(parts)
         return "_".join(str(part) for part in key_parts).replace(" ", "")[:250]
@@ -119,6 +144,7 @@ class BaseService:
 
         Returns:
             Cached value or None
+
         """
         value = cache.get(key)
         if value is not None:
@@ -134,6 +160,7 @@ class BaseService:
             key: Cache key
             value: Value to cache
             timeout: Cache timeout (uses class default if None)
+
         """
         timeout = timeout or self.cache_timeout
         cache.set(key, value, timeout)
@@ -144,6 +171,7 @@ class BaseService:
 
         Args:
             key: Cache key
+
         """
         cache.delete(key)
         self.logger.debug(f"Cache deleted: {key}")
@@ -156,6 +184,7 @@ class BaseService:
 
         Returns:
             Number of keys deleted
+
         """
         # This is a simplified implementation
         # In production, you might want to use Redis pattern matching
@@ -179,6 +208,7 @@ class BaseService:
 
         Raises:
             ValidationError: If value is None or empty
+
         """
         if value is None or (isinstance(value, str) and not value.strip()):
             raise ValidationError(f"{field_name} is required")
@@ -196,6 +226,7 @@ class BaseService:
 
         Raises:
             ValidationError: If value is not a positive integer
+
         """
         if not isinstance(value, int) or value <= 0:
             raise ValidationError(f"{field_name} must be a positive integer")
@@ -207,6 +238,7 @@ class BaseService:
         Args:
             operation: Description of the operation that failed
             error: The exception that occurred
+
         """
         error_msg = f"Failed {operation}: {error}"
         self.logger.error(error_msg)
@@ -233,6 +265,7 @@ class BaseService:
 
         Returns:
             Result of the operation
+
         """
         self.logger.info(f"Starting transaction: {operation_name}")
 
@@ -245,10 +278,7 @@ class BaseService:
             raise
 
     def get_or_create_safe(
-        self,
-        model: Type[models.Model],
-        defaults: Optional[Dict] = None,
-        **lookup_kwargs
+        self, model: Type[models.Model], defaults: Optional[Dict] = None, **lookup_kwargs
     ) -> tuple[models.Model, bool]:
         """Safe get_or_create with error handling.
 
@@ -259,21 +289,19 @@ class BaseService:
 
         Returns:
             Tuple of (instance, created)
+
         """
         try:
             return model.objects.get_or_create(defaults=defaults, **lookup_kwargs)
         except Exception as e:
-            self.handle_service_error(
-                f"get_or_create for {model.__name__}",
-                e
-            )
+            self.handle_service_error(f"get_or_create for {model.__name__}", e)
 
     def bulk_create_safe(
         self,
         model: Type[models.Model],
         objects: List[models.Model],
         batch_size: Optional[int] = None,
-        ignore_conflicts: bool = False
+        ignore_conflicts: bool = False,
     ) -> List[models.Model]:
         """Safe bulk create with error handling.
 
@@ -285,18 +313,12 @@ class BaseService:
 
         Returns:
             List of created objects
+
         """
         try:
-            return model.objects.bulk_create(
-                objects,
-                batch_size=batch_size,
-                ignore_conflicts=ignore_conflicts
-            )
+            return model.objects.bulk_create(objects, batch_size=batch_size, ignore_conflicts=ignore_conflicts)
         except Exception as e:
-            self.handle_service_error(
-                f"bulk_create for {model.__name__}",
-                e
-            )
+            self.handle_service_error(f"bulk_create for {model.__name__}", e)
 
     # ===========================================
     # QUERY OPTIMIZATION PATTERNS
@@ -308,7 +330,7 @@ class BaseService:
         select_related: Optional[List[str]] = None,
         prefetch_related: Optional[List[str]] = None,
         only_fields: Optional[List[str]] = None,
-        defer_fields: Optional[List[str]] = None
+        defer_fields: Optional[List[str]] = None,
     ) -> QuerySet:
         """Apply common query optimizations.
 
@@ -321,6 +343,7 @@ class BaseService:
 
         Returns:
             Optimized queryset
+
         """
         if select_related:
             queryset = queryset.select_related(*select_related)
@@ -337,10 +360,7 @@ class BaseService:
         return queryset
 
     def get_object_or_error(
-        self,
-        model: Type[models.Model],
-        error_message: str = None,
-        **lookup_kwargs
+        self, model: Type[models.Model], error_message: str = None, **lookup_kwargs
     ) -> models.Model:
         """Get object or raise service error.
 
@@ -354,6 +374,7 @@ class BaseService:
 
         Raises:
             ValidationError: If object not found
+
         """
         try:
             return model.objects.get(**lookup_kwargs)
@@ -372,17 +393,18 @@ class BaseService:
 
         Returns:
             Filtered queryset for active objects
+
         """
         # Check common active field names
         model = queryset.model
 
-        if hasattr(model, 'is_active'):
+        if hasattr(model, "is_active"):
             return queryset.filter(is_active=True)
-        elif hasattr(model, 'active'):
+        elif hasattr(model, "active"):
             return queryset.filter(active=True)
-        elif hasattr(model, 'status'):
+        elif hasattr(model, "status"):
             # Assume 'active' is a valid status value
-            return queryset.exclude(status__in=['deleted', 'inactive', 'disabled'])
+            return queryset.exclude(status__in=["deleted", "inactive", "disabled"])
 
         return queryset
 
@@ -397,6 +419,7 @@ class BaseService:
             operation: Description of the operation
             level: Logging level (uses class default if None)
             **context: Additional context for logging
+
         """
         level = level or self.log_level
 
@@ -413,8 +436,10 @@ class BaseService:
         Args:
             operation: Operation name
             duration: Duration in seconds
+
         """
-        if duration > 1.0:  # Log slow operations
+        slow_threshold = self.config.SLOW_OPERATION_THRESHOLD
+        if duration > slow_threshold:
             self.logger.warning(f"Slow operation: {operation} took {duration:.2f}s")
         else:
             self.logger.debug(f"Operation: {operation} took {duration:.3f}s")
@@ -428,11 +453,7 @@ class BaseService:
         return timezone.now()
 
     def paginate_queryset(
-        self,
-        queryset: QuerySet,
-        page: int = 1,
-        page_size: int = 20,
-        max_page_size: int = 100
+        self, queryset: QuerySet, page: int = 1, page_size: Optional[int] = None, max_page_size: Optional[int] = None
     ) -> Dict[str, Any]:
         """Paginate a queryset.
 
@@ -444,7 +465,14 @@ class BaseService:
 
         Returns:
             Dict with pagination info and results
+
         """
+        # Use configured defaults if not provided
+        if page_size is None:
+            page_size = self.config.DEFAULT_PAGE_SIZE
+        if max_page_size is None:
+            max_page_size = self.config.MAX_PAGE_SIZE
+
         # Validate and limit page size
         page_size = min(page_size, max_page_size)
         page = max(1, page)  # Ensure page is at least 1
@@ -456,7 +484,7 @@ class BaseService:
         total_count = queryset.count()
 
         # Get page results
-        results = list(queryset[offset:offset + page_size])
+        results = list(queryset[offset : offset + page_size])
 
         # Calculate pagination info
         total_pages = (total_count + page_size - 1) // page_size
@@ -464,15 +492,15 @@ class BaseService:
         has_previous = page > 1
 
         return {
-            'results': results,
-            'pagination': {
-                'page': page,
-                'page_size': page_size,
-                'total_count': total_count,
-                'total_pages': total_pages,
-                'has_next': has_next,
-                'has_previous': has_previous,
-            }
+            "results": results,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_count": total_count,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_previous": has_previous,
+            },
         }
 
     def format_duration(self, seconds: float) -> str:
@@ -483,14 +511,15 @@ class BaseService:
 
         Returns:
             Formatted duration string
+
         """
-        if seconds < 60:
+        if seconds < DefaultValues.RECORDING_TIMEOUT:  # Less than 30 seconds
             return f"{seconds:.1f}s"
-        elif seconds < 3600:
-            minutes = seconds / 60
+        elif seconds < CacheTimeouts.LONG:  # Less than 1 hour
+            minutes = seconds / CacheTimeouts.VERY_SHORT  # 60 seconds
             return f"{minutes:.1f}m"
         else:
-            hours = seconds / 3600
+            hours = seconds / CacheTimeouts.LONG  # 3600 seconds
             return f"{hours:.1f}h"
 
     def safe_divide(self, numerator: float, denominator: float, default: float = 0.0) -> float:
@@ -503,6 +532,7 @@ class BaseService:
 
         Returns:
             Division result or default
+
         """
         if denominator == 0:
             return default
@@ -518,6 +548,7 @@ class BaseService:
 
         Returns:
             Percentage value
+
         """
         if total == 0:
             return 0.0
@@ -527,7 +558,11 @@ class BaseService:
 class CachedServiceMixin:
     """Mixin to add caching capabilities to services."""
 
-    cache_timeout = 300
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not hasattr(self, 'config'):
+            self.config = get_config()
+        self.cache_timeout = self.config.get_cache_timeout(getattr(self, 'service_type', 'default'))
 
     def cache_method_result(self, method_name: str, *args, **kwargs):
         """Cache the result of a method call."""
@@ -559,6 +594,7 @@ class ValidatedServiceMixin:
 
         Raises:
             ValidationError: If validation fails
+
         """
         try:
             instance.full_clean()
@@ -575,6 +611,7 @@ class ValidatedServiceMixin:
 
         Raises:
             BusinessLogicError: If business rules are violated
+
         """
         pass
 
@@ -590,14 +627,15 @@ class AuditedServiceMixin:
             model: Model name
             object_id: Object identifier
             **metadata: Additional metadata
+
         """
         audit_data = {
-            'service': self.__class__.__name__,
-            'action': action,
-            'model': model,
-            'object_id': str(object_id),
-            'timestamp': timezone.now().isoformat(),
-            'metadata': metadata,
+            "service": self.__class__.__name__,
+            "action": action,
+            "model": model,
+            "object_id": str(object_id),
+            "timestamp": timezone.now().isoformat(),
+            "metadata": metadata,
         }
 
         # In a real implementation, you would save this to an audit log

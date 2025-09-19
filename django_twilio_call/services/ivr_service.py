@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional
 from django.core.cache import cache
 from twilio.twiml.voice_response import Gather, VoiceResponse
 
+from ..constants import CacheTimeouts
+
 logger = logging.getLogger(__name__)
 
 
@@ -490,7 +492,7 @@ class IVRService:
             }
         )
 
-        cache.set(cache_key, path, timeout=3600)  # Keep for 1 hour
+        cache.set(cache_key, path, timeout=CacheTimeouts.LONG)  # Keep for 1 hour
         logger.info(f"IVR path for {call_sid}: {node_id} (input: {input_value})")
 
 

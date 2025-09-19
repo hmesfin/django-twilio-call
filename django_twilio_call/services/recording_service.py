@@ -174,6 +174,7 @@ class RecordingService:
             # Schedule async processing instead of synchronous processing
             if status == "completed":
                 from ..tasks import process_call_recording
+
                 process_call_recording.delay(recording.call.id, data)
 
             logger.info(f"Processed recording {recording_sid}, scheduled async processing")
@@ -376,6 +377,7 @@ class RecordingService:
 
         Returns:
             Task ID for the transcription job
+
         """
         from ..tasks import transcribe_recording
 
@@ -387,8 +389,8 @@ class RecordingService:
             recording = CallRecording.objects.get(id=recording_id)
             recording.transcription_status = "pending"
             recording.metadata = recording.metadata or {}
-            recording.metadata['transcription_task_id'] = task.id
-            recording.save(update_fields=['transcription_status', 'metadata'])
+            recording.metadata["transcription_task_id"] = task.id
+            recording.save(update_fields=["transcription_status", "metadata"])
         except CallRecording.DoesNotExist:
             logger.error(f"Recording {recording_id} not found")
 

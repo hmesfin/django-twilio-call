@@ -1,14 +1,13 @@
 """Business metrics collectors for call center operations."""
 
 import logging
-import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Dict, Optional
 
-from django.db.models import Q, Count, Avg, Sum, F
-from django.utils import timezone
 from django.core.cache import cache
+from django.db.models import Avg
+from django.utils import timezone
 
 from .registry import metrics_registry
 
@@ -36,74 +35,58 @@ class CallCenterKPICollector:
     def __init__(self):
         # Service Level Agreement metrics
         self.service_level = metrics_registry.register_gauge(
-            'callcenter_service_level_percentage',
-            'Percentage of calls answered within SLA threshold',
-            ['queue', 'threshold_seconds']
+            "callcenter_service_level_percentage",
+            "Percentage of calls answered within SLA threshold",
+            ["queue", "threshold_seconds"],
         )
 
         self.abandonment_rate = metrics_registry.register_gauge(
-            'callcenter_abandonment_rate_percentage',
-            'Percentage of calls abandoned before being answered',
-            ['queue']
+            "callcenter_abandonment_rate_percentage", "Percentage of calls abandoned before being answered", ["queue"]
         )
 
         # Wait time metrics
         self.average_wait_time = metrics_registry.register_gauge(
-            'callcenter_average_wait_time_seconds',
-            'Average time calls spend in queue',
-            ['queue']
+            "callcenter_average_wait_time_seconds", "Average time calls spend in queue", ["queue"]
         )
 
         self.queue_depth = metrics_registry.register_gauge(
-            'callcenter_current_queue_depth',
-            'Current number of calls waiting in queue',
-            ['queue']
+            "callcenter_current_queue_depth", "Current number of calls waiting in queue", ["queue"]
         )
 
         # Talk time and handling metrics
         self.average_talk_time = metrics_registry.register_gauge(
-            'callcenter_average_talk_time_seconds',
-            'Average duration of completed calls',
-            ['queue', 'agent']
+            "callcenter_average_talk_time_seconds", "Average duration of completed calls", ["queue", "agent"]
         )
 
         self.calls_handled = metrics_registry.register_counter(
-            'callcenter_calls_handled_total',
-            'Total number of calls handled',
-            ['queue', 'agent', 'direction']
+            "callcenter_calls_handled_total", "Total number of calls handled", ["queue", "agent", "direction"]
         )
 
         # Agent performance metrics
         self.agent_utilization = metrics_registry.register_gauge(
-            'callcenter_agent_utilization_percentage',
-            'Percentage of time agents spend on calls',
-            ['agent', 'queue']
+            "callcenter_agent_utilization_percentage", "Percentage of time agents spend on calls", ["agent", "queue"]
         )
 
         self.agent_status = metrics_registry.register_gauge(
-            'callcenter_agent_status',
-            'Agent status (1=available, 0=unavailable)',
-            ['agent', 'status']
+            "callcenter_agent_status", "Agent status (1=available, 0=unavailable)", ["agent", "status"]
         )
 
         # Call resolution metrics
         self.first_call_resolution = metrics_registry.register_gauge(
-            'callcenter_first_call_resolution_percentage',
-            'Percentage of calls resolved on first contact',
-            ['queue']
+            "callcenter_first_call_resolution_percentage", "Percentage of calls resolved on first contact", ["queue"]
         )
 
         # Recording metrics
         self.recording_processing_time = metrics_registry.register_histogram(
-            'callcenter_recording_processing_seconds',
-            'Time taken to process call recordings',
-            ['status'],
-            buckets=[1, 5, 10, 30, 60, 300, 600]
+            "callcenter_recording_processing_seconds",
+            "Time taken to process call recordings",
+            ["status"],
+            buckets=[1, 5, 10, 30, 60, 300, 600],
         )
 
     def collect_real_time_metrics(self) -> CallCenterMetrics:
         """Collect real-time call center metrics."""
-        from ...models import Call, Agent, Queue
+        from ...models import Queue
 
         now = timezone.now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -112,15 +95,15 @@ class CallCenterKPICollector:
         active_queues = Queue.objects.filter(is_active=True)
 
         overall_metrics = {
-            'service_level': 0.0,
-            'abandonment_rate': 0.0,
-            'average_wait_time': 0.0,
-            'average_talk_time': 0.0,
-            'calls_handled': 0,
-            'calls_abandoned': 0,
-            'agent_utilization': 0.0,
-            'queue_depth': 0,
-            'first_call_resolution': 0.0,
+            "service_level": 0.0,
+            "abandonment_rate": 0.0,
+            "average_wait_time": 0.0,
+            "average_talk_time": 0.0,
+            "calls_handled": 0,
+            "calls_abandoned": 0,
+            "agent_utilization": 0.0,
+            "queue_depth": 0,
+            "first_call_resolution": 0.0,
         }
 
         for queue in active_queues:
@@ -128,14 +111,14 @@ class CallCenterKPICollector:
             self._update_queue_gauges(queue, queue_metrics)
 
             # Aggregate for overall metrics
-            overall_metrics['calls_handled'] += queue_metrics['calls_handled']
-            overall_metrics['calls_abandoned'] += queue_metrics['calls_abandoned']
-            overall_metrics['queue_depth'] += queue_metrics['queue_depth']
+            overall_metrics["calls_handled"] += queue_metrics["calls_handled"]
+            overall_metrics["calls_abandoned"] += queue_metrics["calls_abandoned"]
+            overall_metrics["queue_depth"] += queue_metrics["queue_depth"]
 
         # Calculate overall percentages
-        total_calls = overall_metrics['calls_handled'] + overall_metrics['calls_abandoned']
+        total_calls = overall_metrics["calls_handled"] + overall_metrics["calls_abandoned"]
         if total_calls > 0:
-            overall_metrics['abandonment_rate'] = (overall_metrics['calls_abandoned'] / total_calls) * 100
+            overall_metrics["abandonment_rate"] = (overall_metrics["calls_abandoned"] / total_calls) * 100
 
         # Collect agent metrics
         self._collect_agent_metrics(today_start, now)
@@ -152,11 +135,7 @@ class CallCenterKPICollector:
             return cached_metrics
 
         # Calls in this queue today
-        queue_calls = Call.objects.filter(
-            queue=queue,
-            created_at__gte=start_time,
-            created_at__lt=end_time
-        )
+        queue_calls = Call.objects.filter(queue=queue, created_at__gte=start_time, created_at__lt=end_time)
 
         # Service level calculation (calls answered within 20 seconds)
         sla_threshold = 20  # seconds
@@ -168,39 +147,30 @@ class CallCenterKPICollector:
             service_level = (sla_compliant_calls.count() / answered_calls.count()) * 100
 
         # Abandonment rate
-        abandoned_calls = queue_calls.filter(
-            status__in=[Call.Status.CANCELED, Call.Status.NO_ANSWER]
-        )
+        abandoned_calls = queue_calls.filter(status__in=[Call.Status.CANCELED, Call.Status.NO_ANSWER])
         total_calls = queue_calls.count()
         abandonment_rate = 0.0
         if total_calls > 0:
             abandonment_rate = (abandoned_calls.count() / total_calls) * 100
 
         # Average wait time
-        avg_wait_time = queue_calls.aggregate(
-            avg_wait=Avg('queue_time')
-        )['avg_wait'] or 0.0
+        avg_wait_time = queue_calls.aggregate(avg_wait=Avg("queue_time"))["avg_wait"] or 0.0
 
         # Average talk time for completed calls
-        avg_talk_time = answered_calls.aggregate(
-            avg_talk=Avg('duration')
-        )['avg_talk'] or 0.0
+        avg_talk_time = answered_calls.aggregate(avg_talk=Avg("duration"))["avg_talk"] or 0.0
 
         # Current queue depth (active calls in queue)
-        current_queue_depth = Call.objects.filter(
-            queue=queue,
-            status=Call.Status.QUEUED
-        ).count()
+        current_queue_depth = Call.objects.filter(queue=queue, status=Call.Status.QUEUED).count()
 
         metrics = {
-            'service_level': service_level,
-            'abandonment_rate': abandonment_rate,
-            'average_wait_time': avg_wait_time,
-            'average_talk_time': avg_talk_time,
-            'calls_handled': answered_calls.count(),
-            'calls_abandoned': abandoned_calls.count(),
-            'queue_depth': current_queue_depth,
-            'first_call_resolution': 85.0,  # Placeholder - would need call outcome tracking
+            "service_level": service_level,
+            "abandonment_rate": abandonment_rate,
+            "average_wait_time": avg_wait_time,
+            "average_talk_time": avg_talk_time,
+            "calls_handled": answered_calls.count(),
+            "calls_abandoned": abandoned_calls.count(),
+            "queue_depth": current_queue_depth,
+            "first_call_resolution": 85.0,  # Placeholder - would need call outcome tracking
         }
 
         # Cache for 5 minutes
@@ -211,11 +181,11 @@ class CallCenterKPICollector:
         """Update Prometheus gauges for queue metrics."""
         queue_name = queue.name
 
-        self.service_level.labels(queue=queue_name, threshold_seconds="20").set(metrics['service_level'])
-        self.abandonment_rate.labels(queue=queue_name).set(metrics['abandonment_rate'])
-        self.average_wait_time.labels(queue=queue_name).set(metrics['average_wait_time'])
-        self.queue_depth.labels(queue=queue_name).set(metrics['queue_depth'])
-        self.first_call_resolution.labels(queue=queue_name).set(metrics['first_call_resolution'])
+        self.service_level.labels(queue=queue_name, threshold_seconds="20").set(metrics["service_level"])
+        self.abandonment_rate.labels(queue=queue_name).set(metrics["abandonment_rate"])
+        self.average_wait_time.labels(queue=queue_name).set(metrics["average_wait_time"])
+        self.queue_depth.labels(queue=queue_name).set(metrics["queue_depth"])
+        self.first_call_resolution.labels(queue=queue_name).set(metrics["first_call_resolution"])
 
     def _collect_agent_metrics(self, start_time: datetime, end_time: datetime) -> None:
         """Collect agent performance metrics."""
@@ -232,14 +202,12 @@ class CallCenterKPICollector:
                 agent=agent,
                 activity_type=AgentActivity.ActivityType.CALL_START,
                 created_at__gte=start_time,
-                created_at__lt=end_time
+                created_at__lt=end_time,
             )
 
-            talk_time = sum([
-                activity.duration_seconds or 0
-                for activity in call_activities
-                if activity.duration_seconds
-            ])
+            talk_time = sum(
+                [activity.duration_seconds or 0 for activity in call_activities if activity.duration_seconds]
+            )
 
             utilization = 0.0
             if total_time > 0:
@@ -260,85 +228,58 @@ class TwilioMetricsCollector:
     def __init__(self):
         # Twilio API metrics
         self.twilio_api_calls = metrics_registry.register_counter(
-            'twilio_api_calls_total',
-            'Total Twilio API calls made',
-            ['endpoint', 'method', 'status_code']
+            "twilio_api_calls_total", "Total Twilio API calls made", ["endpoint", "method", "status_code"]
         )
 
         self.twilio_api_duration = metrics_registry.register_histogram(
-            'twilio_api_call_duration_seconds',
-            'Duration of Twilio API calls',
-            ['endpoint', 'method'],
-            buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+            "twilio_api_call_duration_seconds",
+            "Duration of Twilio API calls",
+            ["endpoint", "method"],
+            buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0],
         )
 
         self.twilio_api_errors = metrics_registry.register_counter(
-            'twilio_api_errors_total',
-            'Total Twilio API errors',
-            ['endpoint', 'error_code', 'error_type']
+            "twilio_api_errors_total", "Total Twilio API errors", ["endpoint", "error_code", "error_type"]
         )
 
         # Webhook metrics
         self.webhook_delivery_attempts = metrics_registry.register_counter(
-            'twilio_webhook_delivery_attempts_total',
-            'Total webhook delivery attempts',
-            ['webhook_type', 'status']
+            "twilio_webhook_delivery_attempts_total", "Total webhook delivery attempts", ["webhook_type", "status"]
         )
 
         self.webhook_processing_duration = metrics_registry.register_histogram(
-            'twilio_webhook_processing_seconds',
-            'Time to process incoming webhooks',
-            ['webhook_type'],
-            buckets=[0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
+            "twilio_webhook_processing_seconds",
+            "Time to process incoming webhooks",
+            ["webhook_type"],
+            buckets=[0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
         )
 
         # Twilio resource metrics
-        self.active_calls = metrics_registry.register_gauge(
-            'twilio_active_calls',
-            'Number of active calls in Twilio'
-        )
+        self.active_calls = metrics_registry.register_gauge("twilio_active_calls", "Number of active calls in Twilio")
 
         self.monthly_usage = metrics_registry.register_gauge(
-            'twilio_monthly_usage_dollars',
-            'Monthly Twilio usage in dollars',
-            ['resource_type']
+            "twilio_monthly_usage_dollars", "Monthly Twilio usage in dollars", ["resource_type"]
         )
 
-    def record_api_call(self, endpoint: str, method: str, duration: float,
-                       status_code: int, error_code: Optional[str] = None) -> None:
+    def record_api_call(
+        self, endpoint: str, method: str, duration: float, status_code: int, error_code: Optional[str] = None
+    ) -> None:
         """Record Twilio API call metrics."""
         # Record call count and duration
-        self.twilio_api_calls.labels(
-            endpoint=endpoint,
-            method=method,
-            status_code=str(status_code)
-        ).inc()
+        self.twilio_api_calls.labels(endpoint=endpoint, method=method, status_code=str(status_code)).inc()
 
-        self.twilio_api_duration.labels(
-            endpoint=endpoint,
-            method=method
-        ).observe(duration)
+        self.twilio_api_duration.labels(endpoint=endpoint, method=method).observe(duration)
 
         # Record errors
         if status_code >= 400 and error_code:
-            error_type = 'client_error' if status_code < 500 else 'server_error'
-            self.twilio_api_errors.labels(
-                endpoint=endpoint,
-                error_code=error_code,
-                error_type=error_type
-            ).inc()
+            error_type = "client_error" if status_code < 500 else "server_error"
+            self.twilio_api_errors.labels(endpoint=endpoint, error_code=error_code, error_type=error_type).inc()
 
-    def record_webhook_processing(self, webhook_type: str, duration: float,
-                                 status: str) -> None:
+    def record_webhook_processing(self, webhook_type: str, duration: float, status: str) -> None:
         """Record webhook processing metrics."""
-        self.webhook_delivery_attempts.labels(
-            webhook_type=webhook_type,
-            status=status
-        ).inc()
+        self.webhook_delivery_attempts.labels(webhook_type=webhook_type, status=status).inc()
 
-        self.webhook_processing_duration.labels(
-            webhook_type=webhook_type
-        ).observe(duration)
+        self.webhook_processing_duration.labels(webhook_type=webhook_type).observe(duration)
 
     def update_resource_metrics(self) -> None:
         """Update Twilio resource usage metrics."""

@@ -3,7 +3,7 @@
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Dict, List, Optional
 
 from django.core.cache import cache
@@ -14,12 +14,13 @@ from django.utils import timezone
 @dataclass
 class TaskMetrics:
     """Task performance metrics."""
+
     task_name: str
     total_executions: int = 0
     successful_executions: int = 0
     failed_executions: int = 0
     average_duration: float = 0.0
-    min_duration: float = float('inf')
+    min_duration: float = float("inf")
     max_duration: float = 0.0
     last_execution: float = 0.0
     active_tasks: int = 0
@@ -33,7 +34,7 @@ class TaskMonitor:
         self.task_metrics: Dict[str, TaskMetrics] = defaultdict(TaskMetrics)
         self.execution_history = deque(maxlen=10000)  # Keep last 10k executions
         self.active_tasks = {}
-        self.queue_metrics = defaultdict(lambda: {'length': 0, 'consumers': 0})
+        self.queue_metrics = defaultdict(lambda: {"length": 0, "consumers": 0})
 
     def record_task_start(self, task_id: str, task_name: str, queue_name: str):
         """Record task execution start.
@@ -42,14 +43,11 @@ class TaskMonitor:
             task_id: Celery task ID
             task_name: Task name
             queue_name: Queue name
+
         """
         start_time = time.time()
 
-        self.active_tasks[task_id] = {
-            'task_name': task_name,
-            'queue_name': queue_name,
-            'start_time': start_time
-        }
+        self.active_tasks[task_id] = {"task_name": task_name, "queue_name": queue_name, "start_time": start_time}
 
         # Update metrics
         metrics = self.task_metrics[task_name]
@@ -59,14 +57,15 @@ class TaskMonitor:
         # Update database record
         try:
             from .models import TaskExecution
+
             TaskExecution.objects.update_or_create(
                 task_id=task_id,
                 defaults={
-                    'task_name': task_name,
-                    'status': TaskExecution.Status.STARTED,
-                    'queue_name': queue_name,
-                    'started_at': timezone.now(),
-                }
+                    "task_name": task_name,
+                    "status": TaskExecution.Status.STARTED,
+                    "queue_name": queue_name,
+                    "started_at": timezone.now(),
+                },
             )
         except Exception:
             # Don't fail if database update fails
@@ -79,16 +78,17 @@ class TaskMonitor:
             task_id: Celery task ID
             success: Whether task completed successfully
             result: Task result or error information
+
         """
         if task_id not in self.active_tasks:
             return
 
         task_info = self.active_tasks.pop(task_id)
         completion_time = time.time()
-        duration = completion_time - task_info['start_time']
+        duration = completion_time - task_info["start_time"]
 
         # Update metrics
-        metrics = self.task_metrics[task_info['task_name']]
+        metrics = self.task_metrics[task_info["task_name"]]
         metrics.total_executions += 1
         metrics.active_tasks = max(0, metrics.active_tasks - 1)
         metrics.last_execution = completion_time
@@ -111,20 +111,23 @@ class TaskMonitor:
             metrics.max_duration = max(metrics.max_duration, duration)
 
         # Store in execution history
-        self.execution_history.append({
-            'task_id': task_id,
-            'task_name': task_info['task_name'],
-            'queue_name': task_info['queue_name'],
-            'start_time': task_info['start_time'],
-            'completion_time': completion_time,
-            'duration': duration,
-            'success': success,
-            'result': result
-        })
+        self.execution_history.append(
+            {
+                "task_id": task_id,
+                "task_name": task_info["task_name"],
+                "queue_name": task_info["queue_name"],
+                "start_time": task_info["start_time"],
+                "completion_time": completion_time,
+                "duration": duration,
+                "success": success,
+                "result": result,
+            }
+        )
 
         # Update database record
         try:
             from .models import TaskExecution
+
             TaskExecution.objects.filter(task_id=task_id).update(
                 status=TaskExecution.Status.SUCCESS if success else TaskExecution.Status.FAILURE,
                 completed_at=timezone.now(),
@@ -143,6 +146,7 @@ class TaskMonitor:
 
         Returns:
             Task statistics dictionary
+
         """
         if task_name:
             if task_name in self.task_metrics:
@@ -150,49 +154,43 @@ class TaskMonitor:
             return None
 
         # Return all metrics
-        return {
-            name: self._format_task_metrics(metrics)
-            for name, metrics in self.task_metrics.items()
-        }
+        return {name: self._format_task_metrics(metrics) for name, metrics in self.task_metrics.items()}
 
     def get_system_health(self) -> Dict:
         """Get overall system health metrics.
 
         Returns:
             System health statistics
+
         """
         total_active = sum(metrics.active_tasks for metrics in self.task_metrics.values())
         total_executions = sum(metrics.total_executions for metrics in self.task_metrics.values())
         total_failures = sum(metrics.failed_executions for metrics in self.task_metrics.values())
 
         overall_success_rate = (
-            ((total_executions - total_failures) / total_executions * 100)
-            if total_executions > 0 else 100
+            ((total_executions - total_failures) / total_executions * 100) if total_executions > 0 else 100
         )
 
         # Calculate recent performance (last hour)
         recent_time = time.time() - 3600  # 1 hour ago
-        recent_executions = [
-            exec for exec in self.execution_history
-            if exec['completion_time'] > recent_time
-        ]
+        recent_executions = [exec for exec in self.execution_history if exec["completion_time"] > recent_time]
 
         recent_success_rate = (
-            (sum(1 for exec in recent_executions if exec['success']) / len(recent_executions) * 100)
-            if recent_executions else 100
+            (sum(1 for exec in recent_executions if exec["success"]) / len(recent_executions) * 100)
+            if recent_executions
+            else 100
         )
 
         return {
-            'total_active_tasks': total_active,
-            'total_executions': total_executions,
-            'overall_success_rate': round(overall_success_rate, 2),
-            'recent_success_rate': round(recent_success_rate, 2),
-            'recent_executions': len(recent_executions),
-            'average_execution_time': (
-                sum(exec['duration'] for exec in recent_executions) / len(recent_executions)
-                if recent_executions else 0
+            "total_active_tasks": total_active,
+            "total_executions": total_executions,
+            "overall_success_rate": round(overall_success_rate, 2),
+            "recent_success_rate": round(recent_success_rate, 2),
+            "recent_executions": len(recent_executions),
+            "average_execution_time": (
+                sum(exec["duration"] for exec in recent_executions) / len(recent_executions) if recent_executions else 0
             ),
-            'timestamp': timezone.now().isoformat(),
+            "timestamp": timezone.now().isoformat(),
         }
 
     def get_slow_tasks(self, threshold_seconds: int = 30) -> List[Dict]:
@@ -203,21 +201,24 @@ class TaskMonitor:
 
         Returns:
             List of slow task information
+
         """
         current_time = time.time()
         slow_tasks = []
 
         for task_id, task_info in self.active_tasks.items():
-            duration = current_time - task_info['start_time']
+            duration = current_time - task_info["start_time"]
             if duration > threshold_seconds:
-                slow_tasks.append({
-                    'task_id': task_id,
-                    'task_name': task_info['task_name'],
-                    'queue_name': task_info['queue_name'],
-                    'duration': duration
-                })
+                slow_tasks.append(
+                    {
+                        "task_id": task_id,
+                        "task_name": task_info["task_name"],
+                        "queue_name": task_info["queue_name"],
+                        "duration": duration,
+                    }
+                )
 
-        return sorted(slow_tasks, key=lambda x: x['duration'], reverse=True)
+        return sorted(slow_tasks, key=lambda x: x["duration"], reverse=True)
 
     def get_failure_analysis(self, hours: int = 24) -> Dict:
         """Analyze recent failures.
@@ -227,26 +228,26 @@ class TaskMonitor:
 
         Returns:
             Failure analysis data
+
         """
         cutoff_time = time.time() - (hours * 3600)
         recent_failures = [
-            exec for exec in self.execution_history
-            if not exec['success'] and exec['completion_time'] > cutoff_time
+            exec for exec in self.execution_history if not exec["success"] and exec["completion_time"] > cutoff_time
         ]
 
         failure_by_task = defaultdict(int)
         failure_by_queue = defaultdict(int)
 
         for failure in recent_failures:
-            failure_by_task[failure['task_name']] += 1
-            failure_by_queue[failure['queue_name']] += 1
+            failure_by_task[failure["task_name"]] += 1
+            failure_by_queue[failure["queue_name"]] += 1
 
         return {
-            'total_failures': len(recent_failures),
-            'failure_by_task': dict(failure_by_task),
-            'failure_by_queue': dict(failure_by_queue),
-            'failure_rate': len(recent_failures) / hours if hours > 0 else 0,
-            'period_hours': hours,
+            "total_failures": len(recent_failures),
+            "failure_by_task": dict(failure_by_task),
+            "failure_by_queue": dict(failure_by_queue),
+            "failure_rate": len(recent_failures) / hours if hours > 0 else 0,
+            "period_hours": hours,
         }
 
     def get_queue_metrics(self) -> Dict:
@@ -254,50 +255,55 @@ class TaskMonitor:
 
         Returns:
             Queue metrics data
+
         """
         try:
             from .models import TaskExecution
 
             # Get active tasks by queue
-            active_by_queue = TaskExecution.objects.filter(
-                status__in=[TaskExecution.Status.PENDING, TaskExecution.Status.STARTED]
-            ).values('queue_name').annotate(count=Count('id'))
+            active_by_queue = (
+                TaskExecution.objects.filter(status__in=[TaskExecution.Status.PENDING, TaskExecution.Status.STARTED])
+                .values("queue_name")
+                .annotate(count=Count("id"))
+            )
 
             # Get recent performance by queue (last 24 hours)
             yesterday = timezone.now() - timedelta(hours=24)
-            queue_performance = TaskExecution.objects.filter(
-                created_at__gte=yesterday
-            ).values('queue_name').annotate(
-                total_tasks=Count('id'),
-                success_rate=Count('id', filter=Q(status=TaskExecution.Status.SUCCESS)) * 100.0 / Count('id'),
-                avg_duration=Avg('duration_seconds', filter=Q(status=TaskExecution.Status.SUCCESS)),
+            queue_performance = (
+                TaskExecution.objects.filter(created_at__gte=yesterday)
+                .values("queue_name")
+                .annotate(
+                    total_tasks=Count("id"),
+                    success_rate=Count("id", filter=Q(status=TaskExecution.Status.SUCCESS)) * 100.0 / Count("id"),
+                    avg_duration=Avg("duration_seconds", filter=Q(status=TaskExecution.Status.SUCCESS)),
+                )
             )
 
             queue_metrics = {}
 
             # Combine active and performance data
             for queue_data in queue_performance:
-                queue_name = queue_data['queue_name']
+                queue_name = queue_data["queue_name"]
                 queue_metrics[queue_name] = {
-                    'name': queue_name,
-                    'active_tasks': 0,
-                    'total_tasks_24h': queue_data['total_tasks'],
-                    'success_rate_24h': round(queue_data['success_rate'] or 0, 2),
-                    'avg_duration_24h': round(queue_data['avg_duration'] or 0, 2),
+                    "name": queue_name,
+                    "active_tasks": 0,
+                    "total_tasks_24h": queue_data["total_tasks"],
+                    "success_rate_24h": round(queue_data["success_rate"] or 0, 2),
+                    "avg_duration_24h": round(queue_data["avg_duration"] or 0, 2),
                 }
 
             # Add active task counts
             for queue_data in active_by_queue:
-                queue_name = queue_data['queue_name']
+                queue_name = queue_data["queue_name"]
                 if queue_name in queue_metrics:
-                    queue_metrics[queue_name]['active_tasks'] = queue_data['count']
+                    queue_metrics[queue_name]["active_tasks"] = queue_data["count"]
                 else:
                     queue_metrics[queue_name] = {
-                        'name': queue_name,
-                        'active_tasks': queue_data['count'],
-                        'total_tasks_24h': 0,
-                        'success_rate_24h': 0,
-                        'avg_duration_24h': 0,
+                        "name": queue_name,
+                        "active_tasks": queue_data["count"],
+                        "total_tasks_24h": 0,
+                        "success_rate_24h": 0,
+                        "avg_duration_24h": 0,
                     }
 
             return queue_metrics
@@ -315,6 +321,7 @@ class TaskMonitor:
 
         Returns:
             Performance trend data
+
         """
         try:
             from .models import TaskExecution
@@ -332,32 +339,35 @@ class TaskMonitor:
                     created_at__gte=day_start,
                     created_at__lt=day_end,
                 ).aggregate(
-                    total_executions=Count('id'),
-                    successful_executions=Count('id', filter=Q(status=TaskExecution.Status.SUCCESS)),
-                    avg_duration=Avg('duration_seconds', filter=Q(status=TaskExecution.Status.SUCCESS)),
-                    max_duration=Count('duration_seconds', filter=Q(status=TaskExecution.Status.SUCCESS)),
+                    total_executions=Count("id"),
+                    successful_executions=Count("id", filter=Q(status=TaskExecution.Status.SUCCESS)),
+                    avg_duration=Avg("duration_seconds", filter=Q(status=TaskExecution.Status.SUCCESS)),
+                    max_duration=Count("duration_seconds", filter=Q(status=TaskExecution.Status.SUCCESS)),
                 )
 
-                daily_stats.append({
-                    'date': day_start.date().isoformat(),
-                    'total_executions': day_data['total_executions'] or 0,
-                    'successful_executions': day_data['successful_executions'] or 0,
-                    'success_rate': (
-                        (day_data['successful_executions'] / day_data['total_executions'] * 100)
-                        if day_data['total_executions'] > 0 else 0
-                    ),
-                    'avg_duration': round(day_data['avg_duration'] or 0, 2),
-                    'max_duration': day_data['max_duration'] or 0,
-                })
+                daily_stats.append(
+                    {
+                        "date": day_start.date().isoformat(),
+                        "total_executions": day_data["total_executions"] or 0,
+                        "successful_executions": day_data["successful_executions"] or 0,
+                        "success_rate": (
+                            (day_data["successful_executions"] / day_data["total_executions"] * 100)
+                            if day_data["total_executions"] > 0
+                            else 0
+                        ),
+                        "avg_duration": round(day_data["avg_duration"] or 0, 2),
+                        "max_duration": day_data["max_duration"] or 0,
+                    }
+                )
 
             return {
-                'task_name': task_name,
-                'period_days': days,
-                'daily_stats': daily_stats,
+                "task_name": task_name,
+                "period_days": days,
+                "daily_stats": daily_stats,
             }
 
         except Exception:
-            return {'task_name': task_name, 'error': 'Unable to fetch trend data'}
+            return {"task_name": task_name, "error": "Unable to fetch trend data"}
 
     def _format_task_metrics(self, metrics: TaskMetrics) -> Dict:
         """Format task metrics for output.
@@ -367,23 +377,23 @@ class TaskMonitor:
 
         Returns:
             Formatted metrics dictionary
+
         """
         success_rate = (
-            (metrics.successful_executions / metrics.total_executions * 100)
-            if metrics.total_executions > 0 else 0
+            (metrics.successful_executions / metrics.total_executions * 100) if metrics.total_executions > 0 else 0
         )
 
         return {
-            'task_name': metrics.task_name,
-            'total_executions': metrics.total_executions,
-            'successful_executions': metrics.successful_executions,
-            'failed_executions': metrics.failed_executions,
-            'success_rate': round(success_rate, 2),
-            'average_duration': round(metrics.average_duration, 2),
-            'min_duration': metrics.min_duration if metrics.min_duration != float('inf') else 0,
-            'max_duration': metrics.max_duration,
-            'active_tasks': metrics.active_tasks,
-            'last_execution': metrics.last_execution,
+            "task_name": metrics.task_name,
+            "total_executions": metrics.total_executions,
+            "successful_executions": metrics.successful_executions,
+            "failed_executions": metrics.failed_executions,
+            "success_rate": round(success_rate, 2),
+            "average_duration": round(metrics.average_duration, 2),
+            "min_duration": metrics.min_duration if metrics.min_duration != float("inf") else 0,
+            "max_duration": metrics.max_duration,
+            "active_tasks": metrics.active_tasks,
+            "last_execution": metrics.last_execution,
         }
 
 
@@ -396,8 +406,9 @@ def get_system_status() -> Dict:
 
     Returns:
         Complete system status including health, queues, and performance
+
     """
-    cache_key = 'system_status'
+    cache_key = "system_status"
     cached_status = cache.get(cache_key)
 
     if cached_status:
@@ -405,11 +416,11 @@ def get_system_status() -> Dict:
 
     try:
         status = {
-            'health': task_monitor.get_system_health(),
-            'queues': task_monitor.get_queue_metrics(),
-            'slow_tasks': task_monitor.get_slow_tasks(),
-            'failures': task_monitor.get_failure_analysis(),
-            'top_tasks': _get_top_tasks_by_volume(),
+            "health": task_monitor.get_system_health(),
+            "queues": task_monitor.get_queue_metrics(),
+            "slow_tasks": task_monitor.get_slow_tasks(),
+            "failures": task_monitor.get_failure_analysis(),
+            "top_tasks": _get_top_tasks_by_volume(),
         }
 
         # Cache for 30 seconds
@@ -418,8 +429,8 @@ def get_system_status() -> Dict:
 
     except Exception as e:
         return {
-            'error': f'Unable to fetch system status: {str(e)}',
-            'timestamp': timezone.now().isoformat(),
+            "error": f"Unable to fetch system status: {e!s}",
+            "timestamp": timezone.now().isoformat(),
         }
 
 
@@ -431,26 +442,30 @@ def _get_top_tasks_by_volume(limit: int = 10) -> List[Dict]:
 
     Returns:
         List of top task statistics
+
     """
     try:
         from .models import TaskExecution
 
         yesterday = timezone.now() - timedelta(hours=24)
 
-        top_tasks = TaskExecution.objects.filter(
-            created_at__gte=yesterday
-        ).values('task_name').annotate(
-            total_executions=Count('id'),
-            success_rate=Count('id', filter=Q(status=TaskExecution.Status.SUCCESS)) * 100.0 / Count('id'),
-            avg_duration=Avg('duration_seconds', filter=Q(status=TaskExecution.Status.SUCCESS)),
-        ).order_by('-total_executions')[:limit]
+        top_tasks = (
+            TaskExecution.objects.filter(created_at__gte=yesterday)
+            .values("task_name")
+            .annotate(
+                total_executions=Count("id"),
+                success_rate=Count("id", filter=Q(status=TaskExecution.Status.SUCCESS)) * 100.0 / Count("id"),
+                avg_duration=Avg("duration_seconds", filter=Q(status=TaskExecution.Status.SUCCESS)),
+            )
+            .order_by("-total_executions")[:limit]
+        )
 
         return [
             {
-                'task_name': task['task_name'],
-                'total_executions': task['total_executions'],
-                'success_rate': round(task['success_rate'] or 0, 2),
-                'avg_duration': round(task['avg_duration'] or 0, 2),
+                "task_name": task["task_name"],
+                "total_executions": task["total_executions"],
+                "success_rate": round(task["success_rate"] or 0, 2),
+                "avg_duration": round(task["avg_duration"] or 0, 2),
             }
             for task in top_tasks
         ]

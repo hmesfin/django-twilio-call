@@ -1,20 +1,18 @@
 """Unit tests for models."""
 
 import uuid
-from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from ..models import Agent, Call, CallLog, PhoneNumber, Queue
+from ..models import Agent, Call, CallLog, Queue
 from .factories import (
     AgentFactory,
     CallFactory,
     CallLogFactory,
     PhoneNumberFactory,
     QueueFactory,
-    UserFactory,
 )
 
 User = get_user_model()

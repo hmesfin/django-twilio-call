@@ -8,8 +8,8 @@ from django.db import models, transaction
 from django.db.models import Count, F, Q
 from django.utils import timezone
 
-from .base import BaseService, log_execution
 from ..models import Agent, Call, CallLog, Queue
+from .base import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +154,7 @@ class AdvancedRoutingService(BaseService):
 
         # Import here to avoid circular import
         from .agent_service import agent_service
+
         self.agent_service = agent_service
         self.strategies["load_balanced"] = LoadBalancedRoutingStrategy()
 
@@ -186,9 +187,7 @@ class AdvancedRoutingService(BaseService):
 
             # Get available agents from agent service (eliminates duplication)
             available_agents = self.agent_service.get_available_agents_queryset(
-                queue=queue,
-                skills=required_skills,
-                business_hours_check=True
+                queue=queue, skills=required_skills, business_hours_check=True
             )
 
             if not available_agents.exists():
@@ -213,10 +212,7 @@ class AdvancedRoutingService(BaseService):
     def _try_preferred_agent(self, agent_id: int, queue: Queue) -> Optional[Agent]:
         """Try to get preferred agent if available."""
         # Use agent service for consistent availability checking
-        availability = self.agent_service.check_agent_availability(
-            agent_id=agent_id,
-            queue=queue
-        )
+        availability = self.agent_service.check_agent_availability(agent_id=agent_id, queue=queue)
 
         if availability.get("available", False):
             try:
@@ -225,7 +221,6 @@ class AdvancedRoutingService(BaseService):
                 pass
 
         return None
-
 
     def _get_routing_strategy(self, queue: Queue) -> RoutingStrategy:
         """Get the appropriate routing strategy for the queue."""
@@ -305,7 +300,6 @@ class AdvancedRoutingService(BaseService):
 
         # Default: keep in queue
         return None
-
 
     def get_queue_metrics(self, queue: Queue) -> Dict:
         """Get real-time queue metrics."""

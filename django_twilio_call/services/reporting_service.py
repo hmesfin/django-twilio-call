@@ -7,12 +7,11 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from django.core.mail import EmailMessage
-from django.db import models
-from django.db.models import Avg, Count, F, Max, Q, Sum
-from django.template.loader import render_to_string
+from django.db.models import Avg, Count, Max, Q, Sum
 from django.utils import timezone
 
-from ..models import Agent, Call, CallLog, Queue
+from ..models import Agent, Call, Queue
+from ..constants import Limits
 
 logger = logging.getLogger(__name__)
 
@@ -111,12 +110,7 @@ class ReportingService:
             "data": output,
         }
 
-    def _generate_call_summary(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-        filters: Dict
-    ) -> List[Dict]:
+    def _generate_call_summary(self, start_date: datetime, end_date: datetime, filters: Dict) -> List[Dict]:
         """Generate call summary report.
 
         Args:
@@ -145,12 +139,8 @@ class ReportingService:
         end = end_date.date()
 
         while current_date <= end:
-            day_start = timezone.make_aware(
-                datetime.combine(current_date, datetime.min.time())
-            )
-            day_end = timezone.make_aware(
-                datetime.combine(current_date, datetime.max.time())
-            )
+            day_start = timezone.make_aware(datetime.combine(current_date, datetime.min.time()))
+            day_end = timezone.make_aware(datetime.combine(current_date, datetime.max.time()))
 
             day_calls = calls_query.filter(
                 created_at__gte=day_start,
@@ -166,32 +156,26 @@ class ReportingService:
                 total_duration=Sum("duration", filter=Q(status=Call.Status.COMPLETED)),
             )
 
-            summary.append({
-                "date": current_date.isoformat(),
-                "total_calls": metrics["total_calls"],
-                "completed_calls": metrics["completed"],
-                "abandoned_calls": metrics["abandoned"],
-                "avg_duration": round(metrics["avg_duration"] or 0, 2),
-                "avg_queue_time": round(metrics["avg_queue_time"] or 0, 2),
-                "total_duration": metrics["total_duration"] or 0,
-                "abandonment_rate": round(
-                    (metrics["abandoned"] / metrics["total_calls"] * 100)
-                    if metrics["total_calls"] > 0
-                    else 0,
-                    2
-                ),
-            })
+            summary.append(
+                {
+                    "date": current_date.isoformat(),
+                    "total_calls": metrics["total_calls"],
+                    "completed_calls": metrics["completed"],
+                    "abandoned_calls": metrics["abandoned"],
+                    "avg_duration": round(metrics["avg_duration"] or 0, 2),
+                    "avg_queue_time": round(metrics["avg_queue_time"] or 0, 2),
+                    "total_duration": metrics["total_duration"] or 0,
+                    "abandonment_rate": round(
+                        (metrics["abandoned"] / metrics["total_calls"] * 100) if metrics["total_calls"] > 0 else 0, 2
+                    ),
+                }
+            )
 
             current_date += timedelta(days=1)
 
         return summary
 
-    def _generate_agent_performance(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-        filters: Dict
-    ) -> List[Dict]:
+    def _generate_agent_performance(self, start_date: datetime, end_date: datetime, filters: Dict) -> List[Dict]:
         """Generate agent performance report.
 
         Args:
@@ -225,41 +209,31 @@ class ReportingService:
             )
 
             # Get transfer metrics
-            transfers = calls.filter(
-                metadata__transferred=True
-            ).count()
+            transfers = calls.filter(metadata__transferred=True).count()
 
             # Get hold time
-            hold_time = calls.aggregate(
-                avg_hold=Avg("metadata__hold_time")
-            )["avg_hold"] or 0
+            hold_time = calls.aggregate(avg_hold=Avg("metadata__hold_time"))["avg_hold"] or 0
 
-            performance_data.append({
-                "agent_id": agent.id,
-                "agent_name": f"{agent.first_name} {agent.last_name}",
-                "extension": agent.extension,
-                "total_calls": metrics["total_calls"],
-                "completed_calls": metrics["completed"],
-                "avg_handling_time": round(metrics["avg_duration"] or 0, 2),
-                "total_talk_time": metrics["total_duration"] or 0,
-                "transfers": transfers,
-                "transfer_rate": round(
-                    (transfers / metrics["completed"] * 100)
-                    if metrics["completed"] > 0
-                    else 0,
-                    2
-                ),
-                "avg_hold_time": round(hold_time, 2),
-            })
+            performance_data.append(
+                {
+                    "agent_id": agent.id,
+                    "agent_name": f"{agent.first_name} {agent.last_name}",
+                    "extension": agent.extension,
+                    "total_calls": metrics["total_calls"],
+                    "completed_calls": metrics["completed"],
+                    "avg_handling_time": round(metrics["avg_duration"] or 0, 2),
+                    "total_talk_time": metrics["total_duration"] or 0,
+                    "transfers": transfers,
+                    "transfer_rate": round(
+                        (transfers / metrics["completed"] * 100) if metrics["completed"] > 0 else 0, 2
+                    ),
+                    "avg_hold_time": round(hold_time, 2),
+                }
+            )
 
         return performance_data
 
-    def _generate_queue_performance(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-        filters: Dict
-    ) -> List[Dict]:
+    def _generate_queue_performance(self, start_date: datetime, end_date: datetime, filters: Dict) -> List[Dict]:
         """Generate queue performance report.
 
         Args:
@@ -306,33 +280,27 @@ class ReportingService:
                 else 0
             )
 
-            performance_data.append({
-                "queue_id": queue.id,
-                "queue_name": queue.name,
-                "priority": queue.priority,
-                "total_calls": metrics["total_calls"],
-                "completed_calls": metrics["completed"],
-                "abandoned_calls": metrics["abandoned"],
-                "avg_wait_time": round(metrics["avg_queue_time"] or 0, 2),
-                "max_wait_time": metrics["max_queue_time"] or 0,
-                "service_level": round(service_level, 2),
-                "service_level_threshold": sl_threshold,
-                "abandonment_rate": round(
-                    (metrics["abandoned"] / metrics["total_calls"] * 100)
-                    if metrics["total_calls"] > 0
-                    else 0,
-                    2
-                ),
-            })
+            performance_data.append(
+                {
+                    "queue_id": queue.id,
+                    "queue_name": queue.name,
+                    "priority": queue.priority,
+                    "total_calls": metrics["total_calls"],
+                    "completed_calls": metrics["completed"],
+                    "abandoned_calls": metrics["abandoned"],
+                    "avg_wait_time": round(metrics["avg_queue_time"] or 0, 2),
+                    "max_wait_time": metrics["max_queue_time"] or 0,
+                    "service_level": round(service_level, 2),
+                    "service_level_threshold": sl_threshold,
+                    "abandonment_rate": round(
+                        (metrics["abandoned"] / metrics["total_calls"] * 100) if metrics["total_calls"] > 0 else 0, 2
+                    ),
+                }
+            )
 
         return performance_data
 
-    def _generate_abandoned_calls(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-        filters: Dict
-    ) -> List[Dict]:
+    def _generate_abandoned_calls(self, start_date: datetime, end_date: datetime, filters: Dict) -> List[Dict]:
         """Generate abandoned calls report.
 
         Args:
@@ -354,31 +322,26 @@ class ReportingService:
         if filters.get("queue_id"):
             calls_query = calls_query.filter(queue_id=filters["queue_id"])
         if filters.get("min_wait_time"):
-            calls_query = calls_query.filter(
-                queue_time__gte=filters["min_wait_time"]
-            )
+            calls_query = calls_query.filter(queue_time__gte=filters["min_wait_time"])
 
         abandoned_data = []
 
         for call in calls_query.select_related("queue"):
-            abandoned_data.append({
-                "call_id": str(call.public_id),
-                "from_number": call.from_number,
-                "to_number": call.to_number,
-                "queue": call.queue.name if call.queue else "N/A",
-                "wait_time": call.queue_time or 0,
-                "created_at": call.created_at.isoformat(),
-                "abandoned_at": call.updated_at.isoformat(),
-            })
+            abandoned_data.append(
+                {
+                    "call_id": str(call.public_id),
+                    "from_number": call.from_number,
+                    "to_number": call.to_number,
+                    "queue": call.queue.name if call.queue else "N/A",
+                    "wait_time": call.queue_time or 0,
+                    "created_at": call.created_at.isoformat(),
+                    "abandoned_at": call.updated_at.isoformat(),
+                }
+            )
 
         return abandoned_data
 
-    def _generate_service_level(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-        filters: Dict
-    ) -> List[Dict]:
+    def _generate_service_level(self, start_date: datetime, end_date: datetime, filters: Dict) -> List[Dict]:
         """Generate service level report.
 
         Args:
@@ -407,9 +370,7 @@ class ReportingService:
 
             # Calculate metrics
             total_offered = calls_query.count()
-            answered = calls_query.filter(
-                status__in=[Call.Status.COMPLETED, Call.Status.IN_PROGRESS]
-            ).count()
+            answered = calls_query.filter(status__in=[Call.Status.COMPLETED, Call.Status.IN_PROGRESS]).count()
             abandoned = calls_query.filter(status=Call.Status.ABANDONED).count()
 
             # Service level calculation (calls answered within threshold)
@@ -419,31 +380,26 @@ class ReportingService:
                 queue_time__lte=threshold,
             ).count()
 
-            service_level = (
-                (within_sl / answered * 100) if answered > 0 else 0
-            )
+            service_level = (within_sl / answered * 100) if answered > 0 else 0
 
-            service_level_data.append({
-                "timestamp": current_time.isoformat(),
-                "hour": current_time.hour,
-                "offered": total_offered,
-                "answered": answered,
-                "abandoned": abandoned,
-                "within_service_level": within_sl,
-                "service_level": round(service_level, 2),
-                "threshold_seconds": threshold,
-            })
+            service_level_data.append(
+                {
+                    "timestamp": current_time.isoformat(),
+                    "hour": current_time.hour,
+                    "offered": total_offered,
+                    "answered": answered,
+                    "abandoned": abandoned,
+                    "within_service_level": within_sl,
+                    "service_level": round(service_level, 2),
+                    "threshold_seconds": threshold,
+                }
+            )
 
             current_time = hour_end
 
         return service_level_data
 
-    def _generate_call_detail(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-        filters: Dict
-    ) -> List[Dict]:
+    def _generate_call_detail(self, start_date: datetime, end_date: datetime, filters: Dict) -> List[Dict]:
         """Generate detailed call records.
 
         Args:
@@ -470,33 +426,30 @@ class ReportingService:
 
         call_details = []
 
-        for call in calls_query[:1000]:  # Limit for performance
-            call_details.append({
-                "call_id": str(call.public_id),
-                "twilio_sid": call.twilio_sid,
-                "from_number": call.from_number,
-                "to_number": call.to_number,
-                "direction": call.direction,
-                "status": call.status,
-                "queue": call.queue.name if call.queue else "N/A",
-                "agent": f"{call.agent.first_name} {call.agent.last_name}" if call.agent else "N/A",
-                "duration": call.duration or 0,
-                "queue_time": call.queue_time or 0,
-                "created_at": call.created_at.isoformat(),
-                "answered_at": call.answered_at.isoformat() if call.answered_at else None,
-                "ended_at": call.ended_at.isoformat() if call.ended_at else None,
-                "recording_url": call.recording_url,
-                "voicemail_url": call.voicemail_url,
-            })
+        for call in calls_query[:Limits.MAX_ANALYTICS_RESULTS]:  # Limit for performance
+            call_details.append(
+                {
+                    "call_id": str(call.public_id),
+                    "twilio_sid": call.twilio_sid,
+                    "from_number": call.from_number,
+                    "to_number": call.to_number,
+                    "direction": call.direction,
+                    "status": call.status,
+                    "queue": call.queue.name if call.queue else "N/A",
+                    "agent": f"{call.agent.first_name} {call.agent.last_name}" if call.agent else "N/A",
+                    "duration": call.duration or 0,
+                    "queue_time": call.queue_time or 0,
+                    "created_at": call.created_at.isoformat(),
+                    "answered_at": call.answered_at.isoformat() if call.answered_at else None,
+                    "ended_at": call.ended_at.isoformat() if call.ended_at else None,
+                    "recording_url": call.recording_url,
+                    "voicemail_url": call.voicemail_url,
+                }
+            )
 
         return call_details
 
-    def _generate_agent_activity(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-        filters: Dict
-    ) -> List[Dict]:
+    def _generate_agent_activity(self, start_date: datetime, end_date: datetime, filters: Dict) -> List[Dict]:
         """Generate agent activity report.
 
         Args:
@@ -520,25 +473,22 @@ class ReportingService:
 
         activity_data = []
 
-        for activity in activities_query[:1000]:  # Limit for performance
-            activity_data.append({
-                "agent_id": activity.agent.id,
-                "agent_name": f"{activity.agent.first_name} {activity.agent.last_name}",
-                "activity_type": activity.activity_type,
-                "old_status": activity.old_status,
-                "new_status": activity.new_status,
-                "reason": activity.reason,
-                "timestamp": activity.timestamp.isoformat(),
-            })
+        for activity in activities_query[:Limits.MAX_ANALYTICS_RESULTS]:  # Limit for performance
+            activity_data.append(
+                {
+                    "agent_id": activity.agent.id,
+                    "agent_name": f"{activity.agent.first_name} {activity.agent.last_name}",
+                    "activity_type": activity.activity_type,
+                    "old_status": activity.old_status,
+                    "new_status": activity.new_status,
+                    "reason": activity.reason,
+                    "timestamp": activity.timestamp.isoformat(),
+                }
+            )
 
         return activity_data
 
-    def _generate_hourly_distribution(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-        filters: Dict
-    ) -> List[Dict]:
+    def _generate_hourly_distribution(self, start_date: datetime, end_date: datetime, filters: Dict) -> List[Dict]:
         """Generate hourly call distribution report.
 
         Args:
@@ -571,15 +521,17 @@ class ReportingService:
                 avg_queue_time=Avg("queue_time"),
             )
 
-            hourly_data.append({
-                "hour": hour,
-                "hour_label": f"{hour:02d}:00",
-                "total_calls": metrics["total"],
-                "completed": metrics["completed"],
-                "abandoned": metrics["abandoned"],
-                "avg_duration": round(metrics["avg_duration"] or 0, 2),
-                "avg_queue_time": round(metrics["avg_queue_time"] or 0, 2),
-            })
+            hourly_data.append(
+                {
+                    "hour": hour,
+                    "hour_label": f"{hour:02d}:00",
+                    "total_calls": metrics["total"],
+                    "completed": metrics["completed"],
+                    "abandoned": metrics["abandoned"],
+                    "avg_duration": round(metrics["avg_duration"] or 0, 2),
+                    "avg_queue_time": round(metrics["avg_queue_time"] or 0, 2),
+                }
+            )
 
         return hourly_data
 

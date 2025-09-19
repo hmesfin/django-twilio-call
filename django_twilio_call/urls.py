@@ -59,7 +59,11 @@ api_urlpatterns = [
     # Conference endpoints
     path("conferences/", ConferenceView.as_view(), name="conferences"),
     path("conferences/<str:conference_name>/", ConferenceDetailView.as_view(), name="conference-detail"),
-    path("conferences/<str:conference_name>/participants/", ConferenceParticipantView.as_view(), name="conference-participants"),
+    path(
+        "conferences/<str:conference_name>/participants/",
+        ConferenceParticipantView.as_view(),
+        name="conference-participants",
+    ),
     # IVR Flow endpoints
     path("ivr-flows/", IVRFlowView.as_view(), name="ivr-flows"),
     path("ivr-flows/<str:flow_name>/", IVRFlowDetailView.as_view(), name="ivr-flow-detail"),

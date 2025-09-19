@@ -10,12 +10,9 @@ from django.utils.translation import gettext_lazy as _
 
 from .mixins import (
     BaseCallCenterModel,
-    UUIDMixin,
-    TimestampMixin,
-    MetadataMixin,
-    StatusMixin,
-    SoftDeleteMixin,
     PricingMixin,
+    StatusMixin,
+    TimestampMixin,
     TwilioSIDMixin,
 )
 
@@ -39,6 +36,7 @@ class PhoneNumber(BaseCallCenterModel, TwilioSIDMixin, PricingMixin):
         TOLL_FREE = "toll_free", _("Toll Free")
         MOBILE = "mobile", _("Mobile")
         INTERNATIONAL = "international", _("International")
+
     phone_number = models.CharField(
         _("phone number"),
         max_length=20,
@@ -95,6 +93,7 @@ class Queue(BaseCallCenterModel):
         ROUND_ROBIN = "round_robin", _("Round Robin")
         LEAST_BUSY = "least_busy", _("Least Busy Agent")
         SKILLS_BASED = "skills_based", _("Skills Based")
+
     name = models.CharField(_("name"), max_length=100, unique=True)
     description = models.TextField(_("description"), blank=True)
     routing_strategy = models.CharField(
@@ -250,7 +249,7 @@ class Agent(BaseCallCenterModel, StatusMixin):
             models.Index(
                 fields=["last_status_change"],
                 condition=models.Q(status="available", is_active=True),
-                name="idx_available_agents"
+                name="idx_available_agents",
             ),
         ]
 
@@ -442,14 +441,10 @@ class Call(BaseCallCenterModel, TwilioSIDMixin, PricingMixin, StatusMixin):
             models.Index(
                 fields=["created_at"],
                 condition=models.Q(status__in=["queued", "ringing", "in-progress"]),
-                name="idx_active_calls"
+                name="idx_active_calls",
             ),
             # Partial index for queue management
-            models.Index(
-                fields=["queue", "created_at"],
-                condition=models.Q(status="queued"),
-                name="idx_queued_calls"
-            ),
+            models.Index(fields=["queue", "created_at"], condition=models.Q(status="queued"), name="idx_queued_calls"),
         ]
 
     def __str__(self) -> str:
@@ -813,15 +808,11 @@ class TaskExecution(TimeStampedModel):
             models.Index(fields=["status", "retry_count", "created_at"]),
             # Active tasks monitoring
             models.Index(
-                fields=["created_at"],
-                condition=models.Q(status__in=["pending", "started"]),
-                name="idx_active_tasks"
+                fields=["created_at"], condition=models.Q(status__in=["pending", "started"]), name="idx_active_tasks"
             ),
             # Failed tasks analysis
             models.Index(
-                fields=["task_name", "created_at"],
-                condition=models.Q(status="failure"),
-                name="idx_failed_tasks"
+                fields=["task_name", "created_at"], condition=models.Q(status="failure"), name="idx_failed_tasks"
             ),
         ]
 
@@ -931,7 +922,7 @@ class WebhookLog(TimeStampedModel):
             models.Index(
                 fields=["next_retry_at"],
                 condition=models.Q(status__in=["failed", "retrying"]),
-                name="idx_retry_webhooks"
+                name="idx_retry_webhooks",
             ),
         ]
 
@@ -943,19 +934,19 @@ class WebhookLog(TimeStampedModel):
 # Import here to avoid circular imports
 try:
     from .managers import (
+        AgentActivityManager,
         AgentManager,
+        CallLogManager,
         CallManager,
         QueueManager,
-        CallLogManager,
-        AgentActivityManager,
     )
 
     # Add managers to models
-    Agent.add_to_class('optimized', AgentManager())
-    Call.add_to_class('optimized', CallManager())
-    Queue.add_to_class('optimized', QueueManager())
-    CallLog.add_to_class('optimized', CallLogManager())
-    AgentActivity.add_to_class('optimized', AgentActivityManager())
+    Agent.add_to_class("optimized", AgentManager())
+    Call.add_to_class("optimized", CallManager())
+    Queue.add_to_class("optimized", QueueManager())
+    CallLog.add_to_class("optimized", CallLogManager())
+    AgentActivity.add_to_class("optimized", AgentActivityManager())
 
 except ImportError:
     # Managers not available yet, will be added during app initialization

@@ -1,13 +1,12 @@
 """Intelligent alerting system for call center operations."""
 
-import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Any, Optional, Callable
 from threading import Lock
+from typing import Any, Callable, Dict, List, Optional
 
 from django.conf import settings
 from django.core.cache import cache
@@ -18,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class AlertSeverity(Enum):
     """Alert severity levels."""
+
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
@@ -27,6 +27,7 @@ class AlertSeverity(Enum):
 
 class AlertStatus(Enum):
     """Alert status."""
+
     FIRING = "firing"
     RESOLVED = "resolved"
     SUPPRESSED = "suppressed"
@@ -35,6 +36,7 @@ class AlertStatus(Enum):
 @dataclass
 class Alert:
     """Alert data structure."""
+
     id: str
     title: str
     description: str
@@ -51,6 +53,7 @@ class Alert:
 @dataclass
 class AlertRule:
     """Alert rule configuration."""
+
     name: str
     condition: Callable[[Dict[str, Any]], bool]
     severity: AlertSeverity
@@ -102,7 +105,7 @@ Description: {alert.description}
 Metadata: {alert.metadata}
             """
 
-            recipients = self.config.get('recipients', [])
+            recipients = self.config.get("recipients", [])
             if not recipients:
                 logger.warning("No email recipients configured")
                 return False
@@ -112,7 +115,7 @@ Metadata: {alert.metadata}
                 message=message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=recipients,
-                fail_silently=False
+                fail_silently=False,
             )
 
             logger.info(f"Email sent for alert {alert.id}")
@@ -135,7 +138,7 @@ class SlackNotificationChannel(NotificationChannel):
         try:
             import requests
 
-            webhook_url = self.config.get('webhook_url')
+            webhook_url = self.config.get("webhook_url")
             if not webhook_url:
                 logger.warning("No Slack webhook URL configured")
                 return False
@@ -161,7 +164,7 @@ class SlackNotificationChannel(NotificationChannel):
                             {"title": "Time", "value": alert.timestamp.isoformat(), "short": True},
                         ],
                         "footer": "Call Center Monitoring",
-                        "ts": alert.timestamp.timestamp()
+                        "ts": alert.timestamp.timestamp(),
                     }
                 ]
             }
@@ -189,7 +192,7 @@ class PagerDutyNotificationChannel(NotificationChannel):
         try:
             import requests
 
-            routing_key = self.config.get('routing_key')
+            routing_key = self.config.get("routing_key")
             if not routing_key:
                 logger.warning("No PagerDuty routing key configured")
                 return False
@@ -203,15 +206,11 @@ class PagerDutyNotificationChannel(NotificationChannel):
                     "source": alert.source,
                     "severity": alert.severity.value,
                     "timestamp": alert.timestamp.isoformat(),
-                    "custom_details": alert.metadata
-                }
+                    "custom_details": alert.metadata,
+                },
             }
 
-            response = requests.post(
-                "https://events.pagerduty.com/v2/enqueue",
-                json=payload,
-                timeout=10
-            )
+            response = requests.post("https://events.pagerduty.com/v2/enqueue", json=payload, timeout=10)
             response.raise_for_status()
 
             logger.info(f"PagerDuty notification sent for alert {alert.id}")
@@ -238,124 +237,143 @@ class AlertManager:
 
     def _initialize_default_rules(self) -> None:
         """Initialize default alert rules for call center operations."""
-
         # Service Level Agreement violations
-        self.add_rule(AlertRule(
-            name="sla_violation",
-            condition=lambda metrics: metrics.get("service_level", 100) < 80,
-            severity=AlertSeverity.HIGH,
-            description="Service Level Agreement below 80%",
-            cooldown_minutes=5,
-            tags=["sla", "performance"]
-        ))
+        self.add_rule(
+            AlertRule(
+                name="sla_violation",
+                condition=lambda metrics: metrics.get("service_level", 100) < 80,
+                severity=AlertSeverity.HIGH,
+                description="Service Level Agreement below 80%",
+                cooldown_minutes=5,
+                tags=["sla", "performance"],
+            )
+        )
 
         # High abandonment rate
-        self.add_rule(AlertRule(
-            name="high_abandonment_rate",
-            condition=lambda metrics: metrics.get("abandonment_rate", 0) > 10,
-            severity=AlertSeverity.MEDIUM,
-            description="Call abandonment rate above 10%",
-            cooldown_minutes=3,
-            tags=["abandonment", "customer_experience"]
-        ))
+        self.add_rule(
+            AlertRule(
+                name="high_abandonment_rate",
+                condition=lambda metrics: metrics.get("abandonment_rate", 0) > 10,
+                severity=AlertSeverity.MEDIUM,
+                description="Call abandonment rate above 10%",
+                cooldown_minutes=3,
+                tags=["abandonment", "customer_experience"],
+            )
+        )
 
         # Queue depth alerts
-        self.add_rule(AlertRule(
-            name="queue_depth_critical",
-            condition=lambda metrics: metrics.get("queue_depth", 0) > 20,
-            severity=AlertSeverity.CRITICAL,
-            description="Queue depth critically high",
-            cooldown_minutes=2,
-            tags=["queue", "capacity"]
-        ))
+        self.add_rule(
+            AlertRule(
+                name="queue_depth_critical",
+                condition=lambda metrics: metrics.get("queue_depth", 0) > 20,
+                severity=AlertSeverity.CRITICAL,
+                description="Queue depth critically high",
+                cooldown_minutes=2,
+                tags=["queue", "capacity"],
+            )
+        )
 
-        self.add_rule(AlertRule(
-            name="queue_depth_warning",
-            condition=lambda metrics: metrics.get("queue_depth", 0) > 10,
-            severity=AlertSeverity.MEDIUM,
-            description="Queue depth elevated",
-            cooldown_minutes=5,
-            tags=["queue", "capacity"]
-        ))
+        self.add_rule(
+            AlertRule(
+                name="queue_depth_warning",
+                condition=lambda metrics: metrics.get("queue_depth", 0) > 10,
+                severity=AlertSeverity.MEDIUM,
+                description="Queue depth elevated",
+                cooldown_minutes=5,
+                tags=["queue", "capacity"],
+            )
+        )
 
         # No agents available
-        self.add_rule(AlertRule(
-            name="no_agents_available",
-            condition=lambda metrics: metrics.get("available_agents", 0) == 0,
-            severity=AlertSeverity.CRITICAL,
-            description="No agents available to handle calls",
-            cooldown_minutes=1,
-            tags=["agents", "availability"]
-        ))
+        self.add_rule(
+            AlertRule(
+                name="no_agents_available",
+                condition=lambda metrics: metrics.get("available_agents", 0) == 0,
+                severity=AlertSeverity.CRITICAL,
+                description="No agents available to handle calls",
+                cooldown_minutes=1,
+                tags=["agents", "availability"],
+            )
+        )
 
         # High error rate
-        self.add_rule(AlertRule(
-            name="high_error_rate",
-            condition=lambda metrics: metrics.get("error_rate", 0) > 5,
-            severity=AlertSeverity.HIGH,
-            description="Application error rate above 5%",
-            cooldown_minutes=3,
-            tags=["errors", "reliability"]
-        ))
+        self.add_rule(
+            AlertRule(
+                name="high_error_rate",
+                condition=lambda metrics: metrics.get("error_rate", 0) > 5,
+                severity=AlertSeverity.HIGH,
+                description="Application error rate above 5%",
+                cooldown_minutes=3,
+                tags=["errors", "reliability"],
+            )
+        )
 
         # Database performance
-        self.add_rule(AlertRule(
-            name="high_db_response_time",
-            condition=lambda metrics: metrics.get("db_response_time_ms", 0) > 1000,
-            severity=AlertSeverity.MEDIUM,
-            description="Database response time above 1 second",
-            cooldown_minutes=5,
-            tags=["database", "performance"]
-        ))
+        self.add_rule(
+            AlertRule(
+                name="high_db_response_time",
+                condition=lambda metrics: metrics.get("db_response_time_ms", 0) > 1000,
+                severity=AlertSeverity.MEDIUM,
+                description="Database response time above 1 second",
+                cooldown_minutes=5,
+                tags=["database", "performance"],
+            )
+        )
 
         # Celery task failures
-        self.add_rule(AlertRule(
-            name="high_task_failure_rate",
-            condition=lambda metrics: metrics.get("task_failure_rate", 0) > 10,
-            severity=AlertSeverity.HIGH,
-            description="Celery task failure rate above 10%",
-            cooldown_minutes=5,
-            tags=["celery", "tasks"]
-        ))
+        self.add_rule(
+            AlertRule(
+                name="high_task_failure_rate",
+                condition=lambda metrics: metrics.get("task_failure_rate", 0) > 10,
+                severity=AlertSeverity.HIGH,
+                description="Celery task failure rate above 10%",
+                cooldown_minutes=5,
+                tags=["celery", "tasks"],
+            )
+        )
 
         # Twilio API errors
-        self.add_rule(AlertRule(
-            name="twilio_api_errors",
-            condition=lambda metrics: metrics.get("twilio_error_rate", 0) > 5,
-            severity=AlertSeverity.HIGH,
-            description="High Twilio API error rate",
-            cooldown_minutes=3,
-            tags=["twilio", "api"]
-        ))
+        self.add_rule(
+            AlertRule(
+                name="twilio_api_errors",
+                condition=lambda metrics: metrics.get("twilio_error_rate", 0) > 5,
+                severity=AlertSeverity.HIGH,
+                description="High Twilio API error rate",
+                cooldown_minutes=3,
+                tags=["twilio", "api"],
+            )
+        )
 
         # Webhook delivery failures
-        self.add_rule(AlertRule(
-            name="webhook_delivery_failures",
-            condition=lambda metrics: metrics.get("webhook_failure_rate", 0) > 20,
-            severity=AlertSeverity.MEDIUM,
-            description="High webhook delivery failure rate",
-            cooldown_minutes=5,
-            tags=["webhooks", "integration"]
-        ))
+        self.add_rule(
+            AlertRule(
+                name="webhook_delivery_failures",
+                condition=lambda metrics: metrics.get("webhook_failure_rate", 0) > 20,
+                severity=AlertSeverity.MEDIUM,
+                description="High webhook delivery failure rate",
+                cooldown_minutes=5,
+                tags=["webhooks", "integration"],
+            )
+        )
 
     def _initialize_notification_channels(self) -> None:
         """Initialize notification channels from settings."""
-        alert_config = getattr(settings, 'ALERT_CONFIG', {})
+        alert_config = getattr(settings, "ALERT_CONFIG", {})
 
         # Email channel
-        email_config = alert_config.get('email', {})
-        if email_config.get('enabled', False):
-            self.add_channel(EmailNotificationChannel('email', email_config))
+        email_config = alert_config.get("email", {})
+        if email_config.get("enabled", False):
+            self.add_channel(EmailNotificationChannel("email", email_config))
 
         # Slack channel
-        slack_config = alert_config.get('slack', {})
-        if slack_config.get('enabled', False):
-            self.add_channel(SlackNotificationChannel('slack', slack_config))
+        slack_config = alert_config.get("slack", {})
+        if slack_config.get("enabled", False):
+            self.add_channel(SlackNotificationChannel("slack", slack_config))
 
         # PagerDuty channel
-        pagerduty_config = alert_config.get('pagerduty', {})
-        if pagerduty_config.get('enabled', False):
-            self.add_channel(PagerDutyNotificationChannel('pagerduty', pagerduty_config))
+        pagerduty_config = alert_config.get("pagerduty", {})
+        if pagerduty_config.get("enabled", False):
+            self.add_channel(PagerDutyNotificationChannel("pagerduty", pagerduty_config))
 
     def add_rule(self, rule: AlertRule) -> None:
         """Add an alert rule."""
@@ -459,6 +477,7 @@ class AlertManager:
 
     def _schedule_escalation(self, alert: Alert, rule: AlertRule) -> None:
         """Schedule alert escalation."""
+
         def escalate():
             time.sleep(rule.escalation_minutes * 60)
 
@@ -477,6 +496,7 @@ class AlertManager:
 
         # Run escalation in background thread
         import threading
+
         threading.Thread(target=escalate, daemon=True).start()
 
     def resolve_alert(self, alert_id: str) -> bool:
@@ -521,15 +541,11 @@ class AlertManager:
         with self.lock:
             return {
                 "active_alerts": len(self.active_alerts),
-                "total_alerts_today": len([
-                    a for a in self.alert_history
-                    if a.timestamp.date() == timezone.now().date()
-                ]),
+                "total_alerts_today": len(
+                    [a for a in self.alert_history if a.timestamp.date() == timezone.now().date()]
+                ),
                 "alerts_by_severity": {
-                    severity.value: len([
-                        a for a in self.active_alerts.values()
-                        if a.severity == severity
-                    ])
+                    severity.value: len([a for a in self.active_alerts.values() if a.severity == severity])
                     for severity in AlertSeverity
                 },
                 "top_alert_sources": {},  # Could be calculated from history

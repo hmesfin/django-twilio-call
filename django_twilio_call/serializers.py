@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from .models import Agent, Call, CallLog, CallRecording, PhoneNumber, Queue
+from .constants import DefaultValues
 
 User = get_user_model()
 
@@ -240,7 +241,7 @@ class CallCreateSerializer(serializers.Serializer):
     recording_channels = serializers.ChoiceField(choices=["mono", "dual"], default="mono", required=False)
     recording_status_callback = serializers.URLField(required=False)
     send_digits = serializers.CharField(max_length=255, required=False)
-    timeout = serializers.IntegerField(min_value=1, max_value=600, default=30, required=False)
+    timeout = serializers.IntegerField(min_value=1, max_value=600, default=DefaultValues.RECORDING_TIMEOUT, required=False)
     time_limit = serializers.IntegerField(min_value=1, max_value=14400, required=False)
 
     def validate(self, attrs):
