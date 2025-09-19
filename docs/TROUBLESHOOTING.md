@@ -3,6 +3,7 @@
 This guide covers common issues you might encounter with django-twilio-call and how to solve them. Each issue includes symptoms, causes, and step-by-step solutions.
 
 ## Table of Contents
+
 1. [Installation Issues](#installation-issues)
 2. [Webhook Issues](#webhook-issues)
 3. [Call Issues](#call-issues)
@@ -19,16 +20,19 @@ This guide covers common issues you might encounter with django-twilio-call and 
 ### Problem: ImportError: cannot import name 'django_twilio_call'
 
 **Symptoms:**
+
 ```python
 ImportError: cannot import name 'django_twilio_call' from 'django_twilio_call'
 ```
 
 **Causes:**
+
 - Package not installed correctly
 - Virtual environment issues
 - Python path problems
 
 **Solution:**
+
 ```bash
 # 1. Verify installation
 pip show django-twilio-call
@@ -49,11 +53,13 @@ python manage.py shell
 ### Problem: Migration failures
 
 **Symptoms:**
-```
+
+```markdown
 django.db.utils.ProgrammingError: relation "django_twilio_call_queue" does not exist
 ```
 
 **Solution:**
+
 ```bash
 # 1. Check migration status
 python manage.py showmigrations django_twilio_call
@@ -79,11 +85,13 @@ python manage.py migrate django_twilio_call
 ### Problem: Webhooks not receiving calls
 
 **Symptoms:**
+
 - Incoming calls not appearing in system
 - No logs for webhook requests
 - Twilio console shows webhook errors
 
 **Diagnosis:**
+
 ```python
 # Check webhook URL configuration
 from django.conf import settings
@@ -99,6 +107,7 @@ curl -X POST https://your-domain.com/api/v1/webhooks/voice/ \
 **Common Causes & Solutions:**
 
 1. **URL not publicly accessible**
+
    ```bash
    # For local development, use ngrok
    ngrok http 8000
@@ -106,12 +115,14 @@ curl -X POST https://your-domain.com/api/v1/webhooks/voice/ \
    ```
 
 2. **HTTPS required but not configured**
+
    ```python
    # Twilio requires HTTPS in production
    TWILIO_WEBHOOK_BASE_URL = 'https://your-domain.com'  # Not http://
    ```
 
 3. **Webhook signature validation failing**
+
    ```python
    # Temporarily disable for testing (not for production!)
    TWILIO_WEBHOOK_VALIDATE = False
@@ -121,6 +132,7 @@ curl -X POST https://your-domain.com/api/v1/webhooks/voice/ \
    ```
 
 4. **URL path incorrect**
+
    ```python
    # Verify URL patterns
    # Should be: https://your-domain.com/api/v1/webhooks/voice/
@@ -130,11 +142,13 @@ curl -X POST https://your-domain.com/api/v1/webhooks/voice/ \
 ### Problem: Webhook signature validation errors
 
 **Symptoms:**
-```
+
+```markdown
 403 Forbidden: Invalid webhook signature
 ```
 
 **Solution:**
+
 ```python
 # 1. Verify auth token matches Twilio console
 TWILIO_AUTH_TOKEN = 'your_actual_token'  # From Twilio console
@@ -162,11 +176,13 @@ def voice_webhook(request):
 ### Problem: Calls not connecting to agents
 
 **Symptoms:**
+
 - Calls stuck in queue
 - Agents show available but don't receive calls
 - "No agents available" error despite agents being online
 
 **Diagnosis:**
+
 ```python
 # Check agent status
 from django_twilio_call.models import Agent
@@ -184,6 +200,7 @@ print(f"Agents in queue: {queue.agents.count()}")
 **Solutions:**
 
 1. **Agent not in queue**
+
    ```python
    agent = Agent.objects.get(extension='1001')
    queue = Queue.objects.get(name='support')
@@ -191,12 +208,14 @@ print(f"Agents in queue: {queue.agents.count()}")
    ```
 
 2. **Agent status incorrect**
+
    ```python
    from django_twilio_call.services import agent_service
    agent_service.set_available(agent_id=agent.id)
    ```
 
 3. **Queue routing strategy issue**
+
    ```python
    queue.routing_strategy = 'round_robin'  # Try different strategy
    queue.save()
@@ -205,6 +224,7 @@ print(f"Agents in queue: {queue.agents.count()}")
 ### Problem: Calls dropping immediately
 
 **Symptoms:**
+
 - Call connects then immediately disconnects
 - Duration shows 0 seconds
 - Status changes to 'failed'
@@ -212,6 +232,7 @@ print(f"Agents in queue: {queue.agents.count()}")
 **Common Causes:**
 
 1. **TwiML response error**
+
    ```python
    # Check webhook response
    response = voice_webhook(mock_request)
@@ -219,6 +240,7 @@ print(f"Agents in queue: {queue.agents.count()}")
    ```
 
 2. **Invalid phone number format**
+
    ```python
    # Numbers must be E.164 format
    good = "+14155551234"
@@ -226,6 +248,7 @@ print(f"Agents in queue: {queue.agents.count()}")
    ```
 
 3. **Twilio account issues**
+
    ```python
    # Check account balance and status
    from django_twilio_call.services import twilio_service
@@ -242,11 +265,13 @@ print(f"Agents in queue: {queue.agents.count()}")
 ### Problem: Database connection pool exhausted
 
 **Symptoms:**
-```
+
+```markdown
 OperationalError: FATAL: remaining connection slots are reserved
 ```
 
 **Solution:**
+
 ```python
 # settings.py
 DATABASES = {
@@ -270,11 +295,13 @@ DATABASES['default']['OPTIONS']['connection_pool'] = {
 ### Problem: Slow queries
 
 **Symptoms:**
+
 - API endpoints timing out
 - Database CPU high
 - Slow page loads
 
 **Diagnosis:**
+
 ```python
 # Enable query logging
 LOGGING = {
@@ -299,6 +326,7 @@ print(connection.queries)  # After running slow operation
 **Solutions:**
 
 1. **Add missing indexes**
+
    ```python
    # In migration file
    migrations.AddIndex(
@@ -308,6 +336,7 @@ print(connection.queries)  # After running slow operation
    ```
 
 2. **Optimize ORM queries**
+
    ```python
    # Bad: N+1 query
    calls = Call.objects.all()
@@ -327,11 +356,13 @@ print(connection.queries)  # After running slow operation
 ### Problem: High memory usage
 
 **Symptoms:**
+
 - Server running out of memory
 - Gunicorn workers being killed
 - OOM (Out of Memory) errors
 
 **Diagnosis:**
+
 ```python
 # Check memory usage
 import psutil
@@ -351,6 +382,7 @@ for stat in top_stats[:10]:
 **Solutions:**
 
 1. **Paginate large querysets**
+
    ```python
    # Bad: Loads all records
    calls = Call.objects.all()
@@ -365,6 +397,7 @@ for stat in top_stats[:10]:
    ```
 
 2. **Use iterator for large datasets**
+
    ```python
    # For large result sets
    for call in Call.objects.all().iterator(chunk_size=1000):
@@ -376,6 +409,7 @@ for stat in top_stats[:10]:
 **Solutions:**
 
 1. **Enable caching**
+
    ```python
    from django.core.cache import cache
 
@@ -389,6 +423,7 @@ for stat in top_stats[:10]:
    ```
 
 2. **Use select_related and prefetch_related**
+
    ```python
    # Optimize viewset queries
    class CallViewSet(viewsets.ModelViewSet):
@@ -406,11 +441,13 @@ for stat in top_stats[:10]:
 ### Problem: Twilio API rate limits
 
 **Symptoms:**
-```
+
+```markdown
 429 Too Many Requests
 ```
 
 **Solution:**
+
 ```python
 # Implement exponential backoff
 import time
@@ -441,11 +478,13 @@ def make_call(to_number, from_number):
 ### Problem: Invalid Twilio credentials
 
 **Symptoms:**
-```
+
+```markdown
 20003: Authentication Error - Invalid credentials
 ```
 
 **Solution:**
+
 ```bash
 # 1. Verify credentials in Twilio console
 # https://console.twilio.com
@@ -630,7 +669,7 @@ Call.objects.filter(
 ## Getting Additional Help
 
 1. **Check logs**: `/tmp/django_twilio_call.log`
-2. **Twilio Support**: https://support.twilio.com
+2. **Twilio Support**: <https://support.twilio.com>
 3. **Django Debug Mode**: Set `DEBUG=True` temporarily
 4. **API Documentation**: `/api/v1/docs/`
 5. **Run tests**: `pytest django_twilio_call/tests/`

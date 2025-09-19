@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: django-twilio-call
+  labels:
+    app.kubernetes.io/name: django-twilio-call
+    app.kubernetes.io/part-of: call-center
+    environment: production

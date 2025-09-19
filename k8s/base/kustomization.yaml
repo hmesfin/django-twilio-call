@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: django-twilio-call-base
+  annotations:
+    config.kubernetes.io/local-config: "true"
+
+resources:
+- namespace.yaml
+- configmap.yaml
+- secrets.yaml
+- postgresql.yaml
+- redis.yaml
+- django-web.yaml
+- celery.yaml
+- ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/name: django-twilio-call
+  app.kubernetes.io/part-of: call-center
+  app.kubernetes.io/managed-by: kustomize
+
+images:
+- name: ghcr.io/your-org/django-twilio-call
+  newTag: latest
+
+replicas:
+- name: django-web
+  count: 3
+- name: celery-worker
+  count: 2
+- name: celery-beat
+  count: 1
+- name: flower
+  count: 1
+
+patches:
+- target:
+    kind: Deployment
+    name: django-web
+  patch: |-
+    - op: add
+      path: /spec/template/metadata/annotations/deployment.kubernetes.io~1revision
+      value: "1"

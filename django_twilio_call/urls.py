@@ -91,4 +91,5 @@ webhook_urlpatterns = [
 urlpatterns = [
     path("api/v1/", include(api_urlpatterns)),
     path("webhooks/", include(webhook_urlpatterns)),
+    path("", include("django_twilio_call.urls.health_urls")),
 ]

@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: django-twilio-call-config
+  namespace: django-twilio-call
+data:
+  # Production-specific configuration
+  ENVIRONMENT: "production"
+  ALLOWED_HOSTS: "api.yourdomain.com,webhooks.yourdomain.com"
+  DOMAIN: "yourdomain.com"
+
+  # Performance optimization for production
+  GUNICORN_WORKERS: "8"
+  GUNICORN_TIMEOUT: "60"
+  GUNICORN_KEEPALIVE: "5"
+  GUNICORN_MAX_REQUESTS: "2000"
+  GUNICORN_MAX_REQUESTS_JITTER: "200"
+
+  # Celery production settings
+  CELERY_WORKER_CONCURRENCY: "8"
+  CELERY_WORKER_QUEUES: "celery,twilio,high_priority,low_priority"
+
+  # Security settings
+  SESSION_COOKIE_SECURE: "true"
+  CSRF_COOKIE_SECURE: "true"
+  SECURE_SSL_REDIRECT: "true"
+
+  # Production URLs
+  TWILIO_WEBHOOK_BASE_URL: "https://webhooks.yourdomain.com"
+
+  # Monitoring
+  SENTRY_ENVIRONMENT: "production"
+
+  # Database optimization
+  DB_CONN_MAX_AGE: "300"

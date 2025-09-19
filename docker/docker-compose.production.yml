@@ -1,0 +1,403 @@
+version: '3.8'
+
+# Production Docker Compose Configuration
+# This configuration is optimized for production deployment
+
+services:
+  # ==========================================
+  # Core Application Services
+  # ==========================================
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.production
+      args:
+        - BUILD_DATE=${BUILD_DATE:-}
+        - VCS_REF=${VCS_REF:-}
+        - VERSION=${VERSION:-latest}
+    image: django-twilio-call:${VERSION:-latest}
+    container_name: django-twilio-call-web
+    restart: unless-stopped
+    command: ["web"]
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    env_file:
+      - ../.env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=callcenter.settings.production
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-4}
+      - GUNICORN_TIMEOUT=${GUNICORN_TIMEOUT:-30}
+    volumes:
+      - ../logs:/app/logs:rw
+      - ../media:/app/media:rw
+      - static_volume:/app/staticfiles:rw
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - django-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.django-web.rule=Host(`${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.django-web.tls=true"
+      - "traefik.http.routers.django-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.django-web.loadbalancer.server.port=8000"
+
+  # ==========================================
+  # Celery Services
+  # ==========================================
+
+  celery-worker:
+    image: django-twilio-call:${VERSION:-latest}
+    container_name: django-twilio-call-worker
+    restart: unless-stopped
+    command: ["worker"]
+    env_file:
+      - ../.env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=callcenter.settings.production
+      - CELERY_WORKER_CONCURRENCY=${CELERY_WORKER_CONCURRENCY:-4}
+      - CELERY_WORKER_QUEUES=celery,twilio,high_priority
+    volumes:
+      - ../logs:/app/logs:rw
+      - ../media:/app/media:rw
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - django-network
+    healthcheck:
+      test: ["CMD", "celery", "-A", "django_twilio_call", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    security_opt:
+      - no-new-privileges:true
+
+  celery-beat:
+    image: django-twilio-call:${VERSION:-latest}
+    container_name: django-twilio-call-beat
+    restart: unless-stopped
+    command: ["beat"]
+    env_file:
+      - ../.env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=callcenter.settings.production
+    volumes:
+      - ../logs:/app/logs:rw
+      - beat_data:/app/tmp:rw
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - django-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    security_opt:
+      - no-new-privileges:true
+
+  flower:
+    image: django-twilio-call:${VERSION:-latest}
+    container_name: django-twilio-call-flower
+    restart: unless-stopped
+    command: ["flower"]
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    env_file:
+      - ../.env.production
+    environment:
+      - FLOWER_BASIC_AUTH=${FLOWER_BASIC_AUTH:-admin:admin}
+    depends_on:
+      - redis
+    networks:
+      - django-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.flower.rule=Host(`flower.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.flower.tls=true"
+      - "traefik.http.routers.flower.tls.certresolver=letsencrypt"
+
+  # ==========================================
+  # Database Services
+  # ==========================================
+
+  db:
+    image: postgres:15-alpine
+    container_name: django-twilio-call-db
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${DB_NAME:-callcenter}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data:rw
+      - ../docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - django-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-callcenter}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    security_opt:
+      - no-new-privileges:true
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c max_connections=200
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+      -c max_worker_processes=8
+      -c max_parallel_workers_per_gather=4
+      -c max_parallel_workers=8
+      -c max_parallel_maintenance_workers=4
+
+  # ==========================================
+  # Cache and Message Broker
+  # ==========================================
+
+  redis:
+    image: redis:7-alpine
+    container_name: django-twilio-call-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data:rw
+      - ../docker/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - django-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    security_opt:
+      - no-new-privileges:true
+    command: redis-server /usr/local/etc/redis/redis.conf --appendonly yes
+
+  # ==========================================
+  # Monitoring Services
+  # ==========================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: django-twilio-call-prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ../docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus:rw
+    networks:
+      - django-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: django-twilio-call-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana:rw
+      - ../docker/grafana:/etc/grafana/provisioning:ro
+    networks:
+      - django-network
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+  # ==========================================
+  # Reverse Proxy & Load Balancer
+  # ==========================================
+
+  nginx:
+    image: nginx:alpine
+    container_name: django-twilio-call-nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - static_volume:/var/www/static:ro
+      - ../media:/var/www/media:ro
+      - ../docker/nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx:rw
+    depends_on:
+      - web
+    networks:
+      - django-network
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+
+# ==========================================
+# Networks
+# ==========================================
+
+networks:
+  django-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ==========================================
+# Volumes
+# ==========================================
+
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/postgres
+
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/redis
+
+  static_volume:
+    driver: local
+
+  beat_data:
+    driver: local
+
+  prometheus_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/prometheus
+
+  grafana_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/grafana
+
+  nginx_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/nginx_logs

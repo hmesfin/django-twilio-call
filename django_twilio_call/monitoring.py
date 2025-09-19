@@ -1,474 +1,332 @@
-"""Task monitoring and metrics collection system."""
+"""
+Production monitoring and metrics for Django-Twilio-Call.
+Provides Prometheus metrics and monitoring endpoints.
+"""
 
 import time
-from collections import defaultdict, deque
-from dataclasses import dataclass
-from datetime import timedelta
-from typing import Dict, List, Optional
+from typing import Dict, Any
 
+from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Avg, Count, Q
+from django.db import connection
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+
+try:
+    from prometheus_client import (
+        Counter,
+        Gauge,
+        Histogram,
+        generate_latest,
+        CONTENT_TYPE_LATEST,
+        CollectorRegistry,
+        multiprocess,
+        REGISTRY,
+    )
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
+
+# Prometheus metrics (if available)
+if PROMETHEUS_AVAILABLE:
+    # Application metrics
+    call_total = Counter(
+        'django_twilio_call_total',
+        'Total number of calls',
+        ['status', 'direction', 'queue']
+    )
+
+    call_duration = Histogram(
+        'django_twilio_call_duration_seconds',
+        'Call duration in seconds',
+        ['status', 'queue']
+    )
+
+    active_calls = Gauge(
+        'django_twilio_call_active_total',
+        'Number of active calls',
+        ['queue']
+    )
+
+    agent_status = Gauge(
+        'django_twilio_call_agent_status',
+        'Agent status (1=available, 0=unavailable)',
+        ['agent_id', 'status']
+    )
+
+    queue_size = Gauge(
+        'django_twilio_call_queue_size',
+        'Number of calls waiting in queue',
+        ['queue_name']
+    )
+
+    # System metrics
+    database_connections = Gauge(
+        'django_twilio_call_db_connections',
+        'Number of database connections'
+    )
+
+    cache_hit_rate = Gauge(
+        'django_twilio_call_cache_hit_rate',
+        'Cache hit rate percentage'
+    )
+
+    celery_task_total = Counter(
+        'django_twilio_call_celery_tasks_total',
+        'Total number of Celery tasks',
+        ['task_name', 'status']
+    )
+
+    celery_task_duration = Histogram(
+        'django_twilio_call_celery_task_duration_seconds',
+        'Celery task duration in seconds',
+        ['task_name']
+    )
+
+    # Business metrics
+    webhook_requests = Counter(
+        'django_twilio_call_webhook_requests_total',
+        'Total webhook requests',
+        ['webhook_type', 'status']
+    )
+
+    recording_size_bytes = Histogram(
+        'django_twilio_call_recording_size_bytes',
+        'Recording file size in bytes'
+    )
+
+    ivr_interactions = Counter(
+        'django_twilio_call_ivr_interactions_total',
+        'Total IVR interactions',
+        ['flow_name', 'action']
+    )
 
 
-@dataclass
-class TaskMetrics:
-    """Task performance metrics."""
-
-    task_name: str
-    total_executions: int = 0
-    successful_executions: int = 0
-    failed_executions: int = 0
-    average_duration: float = 0.0
-    min_duration: float = float("inf")
-    max_duration: float = 0.0
-    last_execution: float = 0.0
-    active_tasks: int = 0
-
-
-class TaskMonitor:
-    """Comprehensive task monitoring and metrics collection."""
+class MetricsCollector:
+    """Collects and updates application metrics."""
 
     def __init__(self):
-        """Initialize task monitor."""
-        self.task_metrics: Dict[str, TaskMetrics] = defaultdict(TaskMetrics)
-        self.execution_history = deque(maxlen=10000)  # Keep last 10k executions
-        self.active_tasks = {}
-        self.queue_metrics = defaultdict(lambda: {"length": 0, "consumers": 0})
+        self.enabled = PROMETHEUS_AVAILABLE and getattr(settings, 'METRICS_ENABLED', True)
 
-    def record_task_start(self, task_id: str, task_name: str, queue_name: str):
-        """Record task execution start.
-
-        Args:
-            task_id: Celery task ID
-            task_name: Task name
-            queue_name: Queue name
-
-        """
-        start_time = time.time()
-
-        self.active_tasks[task_id] = {"task_name": task_name, "queue_name": queue_name, "start_time": start_time}
-
-        # Update metrics
-        metrics = self.task_metrics[task_name]
-        metrics.task_name = task_name
-        metrics.active_tasks += 1
-
-        # Update database record
-        try:
-            from .models import TaskExecution
-
-            TaskExecution.objects.update_or_create(
-                task_id=task_id,
-                defaults={
-                    "task_name": task_name,
-                    "status": TaskExecution.Status.STARTED,
-                    "queue_name": queue_name,
-                    "started_at": timezone.now(),
-                },
-            )
-        except Exception:
-            # Don't fail if database update fails
-            pass
-
-    def record_task_completion(self, task_id: str, success: bool = True, result=None):
-        """Record task completion.
-
-        Args:
-            task_id: Celery task ID
-            success: Whether task completed successfully
-            result: Task result or error information
-
-        """
-        if task_id not in self.active_tasks:
+    def record_call_started(self, call_data: Dict[str, Any]):
+        """Record when a call starts."""
+        if not self.enabled:
             return
 
-        task_info = self.active_tasks.pop(task_id)
-        completion_time = time.time()
-        duration = completion_time - task_info["start_time"]
+        call_total.labels(
+            status='started',
+            direction=call_data.get('direction', 'unknown'),
+            queue=call_data.get('queue', 'default')
+        ).inc()
 
-        # Update metrics
-        metrics = self.task_metrics[task_info["task_name"]]
-        metrics.total_executions += 1
-        metrics.active_tasks = max(0, metrics.active_tasks - 1)
-        metrics.last_execution = completion_time
+    def record_call_ended(self, call_data: Dict[str, Any]):
+        """Record when a call ends."""
+        if not self.enabled:
+            return
 
-        if success:
-            metrics.successful_executions += 1
-        else:
-            metrics.failed_executions += 1
+        duration = call_data.get('duration', 0)
+        queue = call_data.get('queue', 'default')
+        status = call_data.get('status', 'completed')
 
-        # Update duration statistics
-        if metrics.total_executions == 1:
-            metrics.average_duration = duration
-            metrics.min_duration = duration
-            metrics.max_duration = duration
-        else:
-            # Running average
-            total_duration = metrics.average_duration * (metrics.total_executions - 1) + duration
-            metrics.average_duration = total_duration / metrics.total_executions
-            metrics.min_duration = min(metrics.min_duration, duration)
-            metrics.max_duration = max(metrics.max_duration, duration)
+        call_total.labels(
+            status='ended',
+            direction=call_data.get('direction', 'unknown'),
+            queue=queue
+        ).inc()
 
-        # Store in execution history
-        self.execution_history.append(
-            {
-                "task_id": task_id,
-                "task_name": task_info["task_name"],
-                "queue_name": task_info["queue_name"],
-                "start_time": task_info["start_time"],
-                "completion_time": completion_time,
-                "duration": duration,
-                "success": success,
-                "result": result,
-            }
-        )
+        call_duration.labels(
+            status=status,
+            queue=queue
+        ).observe(duration)
 
-        # Update database record
+    def update_active_calls(self, queue_name: str, count: int):
+        """Update active calls gauge."""
+        if not self.enabled:
+            return
+
+        active_calls.labels(queue=queue_name).set(count)
+
+    def update_agent_status(self, agent_id: str, status: str, value: int):
+        """Update agent status."""
+        if not self.enabled:
+            return
+
+        agent_status.labels(agent_id=agent_id, status=status).set(value)
+
+    def update_queue_size(self, queue_name: str, size: int):
+        """Update queue size."""
+        if not self.enabled:
+            return
+
+        queue_size.labels(queue_name=queue_name).set(size)
+
+    def record_webhook_request(self, webhook_type: str, status_code: int):
+        """Record webhook request."""
+        if not self.enabled:
+            return
+
+        status = 'success' if 200 <= status_code < 300 else 'error'
+        webhook_requests.labels(
+            webhook_type=webhook_type,
+            status=status
+        ).inc()
+
+    def record_celery_task(self, task_name: str, duration: float, status: str):
+        """Record Celery task execution."""
+        if not self.enabled:
+            return
+
+        celery_task_total.labels(
+            task_name=task_name,
+            status=status
+        ).inc()
+
+        celery_task_duration.labels(
+            task_name=task_name
+        ).observe(duration)
+
+    def record_recording_size(self, size_bytes: int):
+        """Record recording file size."""
+        if not self.enabled:
+            return
+
+        recording_size_bytes.observe(size_bytes)
+
+    def record_ivr_interaction(self, flow_name: str, action: str):
+        """Record IVR interaction."""
+        if not self.enabled:
+            return
+
+        ivr_interactions.labels(
+            flow_name=flow_name,
+            action=action
+        ).inc()
+
+    def update_system_metrics(self):
+        """Update system-level metrics."""
+        if not self.enabled:
+            return
+
         try:
-            from .models import TaskExecution
+            # Database connections
+            db_connections = len(connection.queries)
+            database_connections.set(db_connections)
 
-            TaskExecution.objects.filter(task_id=task_id).update(
-                status=TaskExecution.Status.SUCCESS if success else TaskExecution.Status.FAILURE,
-                completed_at=timezone.now(),
-                duration_seconds=duration,
-                result=result,
-            )
+            # Cache metrics (simplified)
+            cache_info = getattr(cache, '_cache', {})
+            if hasattr(cache_info, 'get_stats'):
+                stats = cache_info.get_stats()
+                hit_rate = stats.get('hit_rate', 0) * 100
+                cache_hit_rate.set(hit_rate)
+
         except Exception:
-            # Don't fail if database update fails
+            # Don't fail on metrics collection errors
             pass
 
-    def get_task_statistics(self, task_name: Optional[str] = None) -> Dict:
-        """Get comprehensive task statistics.
 
-        Args:
-            task_name: Specific task name or None for all tasks
-
-        Returns:
-            Task statistics dictionary
-
-        """
-        if task_name:
-            if task_name in self.task_metrics:
-                return self._format_task_metrics(self.task_metrics[task_name])
-            return None
-
-        # Return all metrics
-        return {name: self._format_task_metrics(metrics) for name, metrics in self.task_metrics.items()}
-
-    def get_system_health(self) -> Dict:
-        """Get overall system health metrics.
-
-        Returns:
-            System health statistics
-
-        """
-        total_active = sum(metrics.active_tasks for metrics in self.task_metrics.values())
-        total_executions = sum(metrics.total_executions for metrics in self.task_metrics.values())
-        total_failures = sum(metrics.failed_executions for metrics in self.task_metrics.values())
-
-        overall_success_rate = (
-            ((total_executions - total_failures) / total_executions * 100) if total_executions > 0 else 100
-        )
-
-        # Calculate recent performance (last hour)
-        recent_time = time.time() - 3600  # 1 hour ago
-        recent_executions = [exec for exec in self.execution_history if exec["completion_time"] > recent_time]
-
-        recent_success_rate = (
-            (sum(1 for exec in recent_executions if exec["success"]) / len(recent_executions) * 100)
-            if recent_executions
-            else 100
-        )
-
-        return {
-            "total_active_tasks": total_active,
-            "total_executions": total_executions,
-            "overall_success_rate": round(overall_success_rate, 2),
-            "recent_success_rate": round(recent_success_rate, 2),
-            "recent_executions": len(recent_executions),
-            "average_execution_time": (
-                sum(exec["duration"] for exec in recent_executions) / len(recent_executions) if recent_executions else 0
-            ),
-            "timestamp": timezone.now().isoformat(),
-        }
-
-    def get_slow_tasks(self, threshold_seconds: int = 30) -> List[Dict]:
-        """Identify slow-running tasks.
-
-        Args:
-            threshold_seconds: Threshold for considering a task slow
-
-        Returns:
-            List of slow task information
-
-        """
-        current_time = time.time()
-        slow_tasks = []
-
-        for task_id, task_info in self.active_tasks.items():
-            duration = current_time - task_info["start_time"]
-            if duration > threshold_seconds:
-                slow_tasks.append(
-                    {
-                        "task_id": task_id,
-                        "task_name": task_info["task_name"],
-                        "queue_name": task_info["queue_name"],
-                        "duration": duration,
-                    }
-                )
-
-        return sorted(slow_tasks, key=lambda x: x["duration"], reverse=True)
-
-    def get_failure_analysis(self, hours: int = 24) -> Dict:
-        """Analyze recent failures.
-
-        Args:
-            hours: Number of hours to analyze
-
-        Returns:
-            Failure analysis data
-
-        """
-        cutoff_time = time.time() - (hours * 3600)
-        recent_failures = [
-            exec for exec in self.execution_history if not exec["success"] and exec["completion_time"] > cutoff_time
-        ]
-
-        failure_by_task = defaultdict(int)
-        failure_by_queue = defaultdict(int)
-
-        for failure in recent_failures:
-            failure_by_task[failure["task_name"]] += 1
-            failure_by_queue[failure["queue_name"]] += 1
-
-        return {
-            "total_failures": len(recent_failures),
-            "failure_by_task": dict(failure_by_task),
-            "failure_by_queue": dict(failure_by_queue),
-            "failure_rate": len(recent_failures) / hours if hours > 0 else 0,
-            "period_hours": hours,
-        }
-
-    def get_queue_metrics(self) -> Dict:
-        """Get queue performance metrics.
-
-        Returns:
-            Queue metrics data
-
-        """
-        try:
-            from .models import TaskExecution
-
-            # Get active tasks by queue
-            active_by_queue = (
-                TaskExecution.objects.filter(status__in=[TaskExecution.Status.PENDING, TaskExecution.Status.STARTED])
-                .values("queue_name")
-                .annotate(count=Count("id"))
-            )
-
-            # Get recent performance by queue (last 24 hours)
-            yesterday = timezone.now() - timedelta(hours=24)
-            queue_performance = (
-                TaskExecution.objects.filter(created_at__gte=yesterday)
-                .values("queue_name")
-                .annotate(
-                    total_tasks=Count("id"),
-                    success_rate=Count("id", filter=Q(status=TaskExecution.Status.SUCCESS)) * 100.0 / Count("id"),
-                    avg_duration=Avg("duration_seconds", filter=Q(status=TaskExecution.Status.SUCCESS)),
-                )
-            )
-
-            queue_metrics = {}
-
-            # Combine active and performance data
-            for queue_data in queue_performance:
-                queue_name = queue_data["queue_name"]
-                queue_metrics[queue_name] = {
-                    "name": queue_name,
-                    "active_tasks": 0,
-                    "total_tasks_24h": queue_data["total_tasks"],
-                    "success_rate_24h": round(queue_data["success_rate"] or 0, 2),
-                    "avg_duration_24h": round(queue_data["avg_duration"] or 0, 2),
-                }
-
-            # Add active task counts
-            for queue_data in active_by_queue:
-                queue_name = queue_data["queue_name"]
-                if queue_name in queue_metrics:
-                    queue_metrics[queue_name]["active_tasks"] = queue_data["count"]
-                else:
-                    queue_metrics[queue_name] = {
-                        "name": queue_name,
-                        "active_tasks": queue_data["count"],
-                        "total_tasks_24h": 0,
-                        "success_rate_24h": 0,
-                        "avg_duration_24h": 0,
-                    }
-
-            return queue_metrics
-
-        except Exception:
-            # Return cached metrics if database query fails
-            return self.queue_metrics
-
-    def get_task_performance_trends(self, task_name: str, days: int = 7) -> Dict:
-        """Get performance trends for a specific task.
-
-        Args:
-            task_name: Task name to analyze
-            days: Number of days to analyze
-
-        Returns:
-            Performance trend data
-
-        """
-        try:
-            from .models import TaskExecution
-
-            since_date = timezone.now() - timedelta(days=days)
-
-            # Get daily statistics
-            daily_stats = []
-            for day in range(days):
-                day_start = since_date + timedelta(days=day)
-                day_end = day_start + timedelta(days=1)
-
-                day_data = TaskExecution.objects.filter(
-                    task_name=task_name,
-                    created_at__gte=day_start,
-                    created_at__lt=day_end,
-                ).aggregate(
-                    total_executions=Count("id"),
-                    successful_executions=Count("id", filter=Q(status=TaskExecution.Status.SUCCESS)),
-                    avg_duration=Avg("duration_seconds", filter=Q(status=TaskExecution.Status.SUCCESS)),
-                    max_duration=Count("duration_seconds", filter=Q(status=TaskExecution.Status.SUCCESS)),
-                )
-
-                daily_stats.append(
-                    {
-                        "date": day_start.date().isoformat(),
-                        "total_executions": day_data["total_executions"] or 0,
-                        "successful_executions": day_data["successful_executions"] or 0,
-                        "success_rate": (
-                            (day_data["successful_executions"] / day_data["total_executions"] * 100)
-                            if day_data["total_executions"] > 0
-                            else 0
-                        ),
-                        "avg_duration": round(day_data["avg_duration"] or 0, 2),
-                        "max_duration": day_data["max_duration"] or 0,
-                    }
-                )
-
-            return {
-                "task_name": task_name,
-                "period_days": days,
-                "daily_stats": daily_stats,
-            }
-
-        except Exception:
-            return {"task_name": task_name, "error": "Unable to fetch trend data"}
-
-    def _format_task_metrics(self, metrics: TaskMetrics) -> Dict:
-        """Format task metrics for output.
-
-        Args:
-            metrics: TaskMetrics object
-
-        Returns:
-            Formatted metrics dictionary
-
-        """
-        success_rate = (
-            (metrics.successful_executions / metrics.total_executions * 100) if metrics.total_executions > 0 else 0
-        )
-
-        return {
-            "task_name": metrics.task_name,
-            "total_executions": metrics.total_executions,
-            "successful_executions": metrics.successful_executions,
-            "failed_executions": metrics.failed_executions,
-            "success_rate": round(success_rate, 2),
-            "average_duration": round(metrics.average_duration, 2),
-            "min_duration": metrics.min_duration if metrics.min_duration != float("inf") else 0,
-            "max_duration": metrics.max_duration,
-            "active_tasks": metrics.active_tasks,
-            "last_execution": metrics.last_execution,
-        }
+# Global metrics collector
+metrics_collector = MetricsCollector()
 
 
-# Global task monitor instance
-task_monitor = TaskMonitor()
-
-
-def get_system_status() -> Dict:
-    """Get comprehensive system status.
-
-    Returns:
-        Complete system status including health, queues, and performance
-
+@never_cache
+@csrf_exempt
+@require_http_methods(["GET"])
+def metrics_endpoint(request):
     """
-    cache_key = "system_status"
-    cached_status = cache.get(cache_key)
-
-    if cached_status:
-        return cached_status
+    Prometheus metrics endpoint.
+    Returns metrics in Prometheus format.
+    """
+    if not PROMETHEUS_AVAILABLE:
+        return HttpResponse(
+            "Prometheus client not available",
+            content_type="text/plain",
+            status=503
+        )
 
     try:
-        status = {
-            "health": task_monitor.get_system_health(),
-            "queues": task_monitor.get_queue_metrics(),
-            "slow_tasks": task_monitor.get_slow_tasks(),
-            "failures": task_monitor.get_failure_analysis(),
-            "top_tasks": _get_top_tasks_by_volume(),
-        }
+        # Update system metrics before export
+        metrics_collector.update_system_metrics()
 
-        # Cache for 30 seconds
-        cache.set(cache_key, status, 30)
-        return status
+        # Generate metrics
+        registry = REGISTRY
+        if hasattr(settings, 'PROMETHEUS_MULTIPROC_DIR'):
+            registry = CollectorRegistry()
+            multiprocess.MultiProcessCollector(registry)
+
+        metrics_data = generate_latest(registry)
+
+        return HttpResponse(
+            metrics_data,
+            content_type=CONTENT_TYPE_LATEST
+        )
 
     except Exception as e:
-        return {
-            "error": f"Unable to fetch system status: {e!s}",
-            "timestamp": timezone.now().isoformat(),
-        }
-
-
-def _get_top_tasks_by_volume(limit: int = 10) -> List[Dict]:
-    """Get top tasks by execution volume.
-
-    Args:
-        limit: Number of top tasks to return
-
-    Returns:
-        List of top task statistics
-
-    """
-    try:
-        from .models import TaskExecution
-
-        yesterday = timezone.now() - timedelta(hours=24)
-
-        top_tasks = (
-            TaskExecution.objects.filter(created_at__gte=yesterday)
-            .values("task_name")
-            .annotate(
-                total_executions=Count("id"),
-                success_rate=Count("id", filter=Q(status=TaskExecution.Status.SUCCESS)) * 100.0 / Count("id"),
-                avg_duration=Avg("duration_seconds", filter=Q(status=TaskExecution.Status.SUCCESS)),
-            )
-            .order_by("-total_executions")[:limit]
+        return HttpResponse(
+            f"Error generating metrics: {str(e)}",
+            content_type="text/plain",
+            status=500
         )
 
-        return [
-            {
-                "task_name": task["task_name"],
-                "total_executions": task["total_executions"],
-                "success_rate": round(task["success_rate"] or 0, 2),
-                "avg_duration": round(task["avg_duration"] or 0, 2),
-            }
-            for task in top_tasks
-        ]
 
-    except Exception:
-        return []
+@never_cache
+@csrf_exempt
+@require_http_methods(["GET"])
+def app_info(request):
+    """
+    Application information endpoint.
+    Returns basic application information for monitoring.
+    """
+    try:
+        from django_twilio_call import __version__
+        version = __version__
+    except ImportError:
+        version = "unknown"
+
+    info = {
+        'name': 'django-twilio-call',
+        'version': version,
+        'environment': getattr(settings, 'ENVIRONMENT', 'unknown'),
+        'debug': settings.DEBUG,
+        'timestamp': timezone.now().isoformat(),
+        'uptime_seconds': int(time.time() - getattr(settings, 'START_TIME', time.time())),
+        'features': {
+            'prometheus_metrics': PROMETHEUS_AVAILABLE,
+            'twilio_integration': bool(getattr(settings, 'TWILIO_ACCOUNT_SID', None)),
+            'celery_enabled': 'django_celery_beat' in settings.INSTALLED_APPS,
+            'redis_cache': 'redis' in settings.CACHES.get('default', {}).get('BACKEND', '').lower(),
+        },
+        'configuration': {
+            'allowed_hosts': settings.ALLOWED_HOSTS,
+            'time_zone': settings.TIME_ZONE,
+            'recording_enabled': getattr(settings, 'DJANGO_TWILIO_CALL', {}).get('RECORDING_ENABLED', False),
+            'analytics_enabled': getattr(settings, 'DJANGO_TWILIO_CALL', {}).get('ANALYTICS_ENABLED', False),
+        }
+    }
+
+    return JsonResponse(info)
+
+
+# Middleware for automatic metrics collection
+class MetricsMiddleware:
+    """Middleware to automatically collect request metrics."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        start_time = time.time()
+
+        response = self.get_response(request)
+
+        # Record request metrics
+        if PROMETHEUS_AVAILABLE and hasattr(request, 'resolver_match'):
+            duration = time.time() - start_time
+            endpoint = getattr(request.resolver_match, 'view_name', 'unknown')
+
+            # This could be expanded to include more detailed request metrics
+            # For now, webhook metrics are handled separately
+
+        return response

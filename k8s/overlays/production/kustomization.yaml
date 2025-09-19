@@ -1,0 +1,95 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: django-twilio-call-production
+  annotations:
+    config.kubernetes.io/local-config: "true"
+
+namespace: django-twilio-call
+
+resources:
+- ../../base
+
+images:
+- name: ghcr.io/your-org/django-twilio-call
+  newTag: v1.0.0  # Replace with actual production tag
+
+replicas:
+- name: django-web
+  count: 5
+- name: celery-worker
+  count: 4
+- name: celery-beat
+  count: 1
+- name: flower
+  count: 1
+
+patchesStrategicMerge:
+- production-config.yaml
+- production-resources.yaml
+
+configMapGenerator:
+- name: django-twilio-call-config
+  behavior: merge
+  literals:
+  - ENVIRONMENT=production
+  - GUNICORN_WORKERS=8
+  - CELERY_WORKER_CONCURRENCY=8
+
+patches:
+- target:
+    kind: Deployment
+    name: django-web
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/requests/memory
+      value: "1Gi"
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits/memory
+      value: "4Gi"
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/requests/cpu
+      value: "500m"
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits/cpu
+      value: "2000m"
+
+- target:
+    kind: Deployment
+    name: celery-worker
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/requests/memory
+      value: "1Gi"
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits/memory
+      value: "4Gi"
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/requests/cpu
+      value: "500m"
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits/cpu
+      value: "2000m"
+
+- target:
+    kind: HorizontalPodAutoscaler
+    name: django-web-hpa
+  patch: |-
+    - op: replace
+      path: /spec/maxReplicas
+      value: 20
+    - op: replace
+      path: /spec/metrics/0/resource/target/averageUtilization
+      value: 60
+
+- target:
+    kind: HorizontalPodAutoscaler
+    name: celery-worker-hpa
+  patch: |-
+    - op: replace
+      path: /spec/maxReplicas
+      value: 15
+    - op: replace
+      path: /spec/metrics/0/resource/target/averageUtilization
+      value: 60

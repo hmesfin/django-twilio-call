@@ -1,6 +1,7 @@
 # Django-Twilio-Call Integration Guide
 
 ## Table of Contents
+
 1. [Quick Start](#quick-start)
 2. [Installation](#installation)
 3. [Configuration](#configuration)
@@ -14,6 +15,7 @@
 If you're reading this with no context about what this library does - it's a Django package that provides a complete call center solution using Twilio's telephony APIs. Think of it as the backend for a customer service call center.
 
 ### What This Library Does
+
 - **Handles incoming calls** from customers
 - **Routes calls** to available agents based on skills and availability
 - **Manages queues** with different routing strategies
@@ -22,6 +24,7 @@ If you're reading this with no context about what this library does - it's a Dja
 - **Supports IVR** (Interactive Voice Response) menus
 
 ### What You Need
+
 1. Django 4.2+ or 5.1 project
 2. Twilio account (free trial works for testing)
 3. PostgreSQL database (recommended for production)
@@ -131,6 +134,7 @@ urlpatterns = [
 ```
 
 This provides:
+
 - `/api/v1/` - REST API endpoints
 - `/api/v1/webhooks/` - Twilio webhook endpoints
 - `/api/v1/docs/` - Swagger documentation (if drf-spectacular is installed)
@@ -178,7 +182,7 @@ In your Twilio Console:
 2. Click on your phone number
 3. Set the webhook URLs:
 
-```
+```markdown
 Voice & Fax:
 - WHEN A CALL COMES IN: https://your-domain.com/api/v1/webhooks/voice/
 - METHOD: POST
@@ -190,6 +194,7 @@ Voice & Fax:
 ### Handling Incoming Calls
 
 When a call comes in, the library:
+
 1. Creates a Call record
 2. Checks business hours (if configured)
 3. Plays IVR menu (if configured)
@@ -468,6 +473,6 @@ class IntegrationTest(TestCase):
 - **API Documentation**: `/api/v1/docs/` (when drf-spectacular is installed)
 - **Django Admin**: Register models in admin for easy management
 - **Logs**: Check `django_twilio_call` logger output
-- **Twilio Status**: https://status.twilio.com/
+- **Twilio Status**: <https://status.twilio.com/>
 
 Remember: This library handles the complex telephony logic, but you still need to understand basic Twilio concepts like TwiML, webhooks, and phone number configuration.

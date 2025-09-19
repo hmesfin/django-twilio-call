@@ -3,6 +3,7 @@
 This document contains every configuration option available in django-twilio-call. If you're setting this up for the first time, start with the required settings, then add optional ones as needed.
 
 ## Table of Contents
+
 1. [Required Settings](#required-settings)
 2. [Optional Settings](#optional-settings)
 3. [Model Configuration](#model-configuration)
@@ -17,6 +18,7 @@ This document contains every configuration option available in django-twilio-cal
 These settings MUST be configured for the library to function.
 
 ### TWILIO_ACCOUNT_SID
+
 - **Type**: `str`
 - **Required**: Yes
 - **Description**: Your Twilio Account SID
@@ -29,6 +31,7 @@ TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID')
 ```
 
 ### TWILIO_AUTH_TOKEN
+
 - **Type**: `str`
 - **Required**: Yes
 - **Description**: Your Twilio Auth Token
@@ -41,6 +44,7 @@ TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN')
 ```
 
 ### TWILIO_PHONE_NUMBER
+
 - **Type**: `str`
 - **Required**: Yes
 - **Description**: Default Twilio phone number for outbound calls
@@ -53,6 +57,7 @@ TWILIO_PHONE_NUMBER = os.environ.get('TWILIO_PHONE_NUMBER', '+14155551234')
 ```
 
 ### TWILIO_WEBHOOK_BASE_URL
+
 - **Type**: `str`
 - **Required**: Yes
 - **Description**: Base URL where your application is hosted
@@ -67,6 +72,7 @@ TWILIO_WEBHOOK_BASE_URL = os.environ.get('BASE_URL', 'https://api.example.com')
 ## Optional Settings
 
 ### TWILIO_WEBHOOK_VALIDATE
+
 - **Type**: `bool`
 - **Default**: `True`
 - **Description**: Enable Twilio webhook signature validation
@@ -78,6 +84,7 @@ TWILIO_WEBHOOK_VALIDATE = not DEBUG  # Disable in development
 ```
 
 ### TWILIO_REGION
+
 - **Type**: `str`
 - **Default**: `None` (uses default region)
 - **Description**: Twilio region for API calls
@@ -89,6 +96,7 @@ TWILIO_REGION = 'dublin'  # For EU customers
 ```
 
 ### TWILIO_EDGE
+
 - **Type**: `str`
 - **Default**: `None`
 - **Description**: Twilio edge location
@@ -99,6 +107,7 @@ TWILIO_EDGE = 'dublin'
 ```
 
 ### TWILIO_SUBACCOUNT_SID
+
 - **Type**: `str`
 - **Default**: `None`
 - **Description**: Use a subaccount for isolation
@@ -560,6 +569,7 @@ python manage.py django_twilio_call_check_config
 ```
 
 This command will check:
+
 - Required settings are present
 - Twilio credentials are valid
 - Phone numbers are in correct format

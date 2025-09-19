@@ -1,0 +1,102 @@
+# ====================
+# Production Multi-Stage Dockerfile
+# ====================
+
+# Stage 1: Build dependencies
+FROM python:3.11-slim as builder
+
+# Set build environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    python3-dev \
+    libpq-dev \
+    libffi-dev \
+    libssl-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy requirements and setup files
+COPY requirements/ /requirements/
+COPY setup.py setup.cfg MANIFEST.in pyproject.toml /app/
+COPY django_twilio_call/__init__.py /app/django_twilio_call/
+
+WORKDIR /app
+
+# Install Python dependencies
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install -r /requirements/base.txt && \
+    pip install -e .
+
+# Stage 2: Runtime image
+FROM python:3.11-slim as runtime
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    postgresql-client \
+    curl \
+    tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy virtual environment from builder stage
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Set runtime environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DJANGO_SETTINGS_MODULE=callcenter.settings.production \
+    GUNICORN_WORKERS=4 \
+    GUNICORN_TIMEOUT=30 \
+    GUNICORN_KEEPALIVE=2 \
+    GUNICORN_MAX_REQUESTS=1000 \
+    GUNICORN_MAX_REQUESTS_JITTER=100
+
+# Create non-root user with specific UID/GID
+RUN groupadd -g 1001 appgroup && \
+    useradd -r -u 1001 -g appgroup -d /app -s /bin/bash appuser
+
+# Set work directory
+WORKDIR /app
+
+# Copy application code
+COPY . /app/
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/logs \
+             /app/staticfiles \
+             /app/media \
+             /app/tmp \
+             /var/log/django \
+    && chown -R appuser:appgroup /app \
+    && chown -R appuser:appgroup /var/log/django \
+    && chmod -R 755 /app \
+    && chmod +x /app/docker/entrypoint.sh
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health/ || exit 1
+
+# Use tini as init system
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# Default command
+CMD ["/app/docker/entrypoint.sh"]
