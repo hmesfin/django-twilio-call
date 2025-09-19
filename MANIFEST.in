@@ -1,11 +1,42 @@
+# Include documentation and configuration files
 include README.md
 include LICENSE
 include CHANGELOG.md
+include setup.py
+include pyproject.toml
+include requirements.txt
+
+# Include all files in requirements directory
+recursive-include requirements *.txt
+
+# Include package data
+recursive-include django_twilio_call *.py
+recursive-include django_twilio_call *.json
+recursive-include django_twilio_call *.html
+recursive-include django_twilio_call *.txt
+
+# Include migrations
+recursive-include django_twilio_call/migrations *.py
+
+# Include templates and static files if any
 recursive-include django_twilio_call/templates *
 recursive-include django_twilio_call/static *
 recursive-include django_twilio_call/locale *
-recursive-exclude * __pycache__
-recursive-exclude * *.py[co]
-recursive-exclude tests *
-recursive-exclude docker *
-recursive-exclude docs *
+
+# Exclude unnecessary files
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store
+global-exclude *.so
+global-exclude *~
+
+# Exclude development files
+prune example_project
+prune docker
+prune k8s
+prune tests
+prune .github
+prune htmlcov
+prune build
+prune dist
+prune *.egg-info
