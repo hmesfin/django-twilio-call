@@ -72,11 +72,19 @@ class PackageConfig:
     # ===========================================
 
     def _load_twilio_config(self) -> None:
-        """Load Twilio API configuration."""
-        self.TWILIO_ACCOUNT_SID = self._get_setting("TWILIO_ACCOUNT_SID", required=True)
-        self.TWILIO_AUTH_TOKEN = self._get_setting("TWILIO_AUTH_TOKEN")
-        self.TWILIO_API_KEY = self._get_setting("TWILIO_API_KEY")
-        self.TWILIO_API_SECRET = self._get_setting("TWILIO_API_SECRET")
+        """Load Twilio API configuration using SecretsManager."""
+        # Import here to avoid circular dependency
+        from .security import SecretsManager
+        secrets = SecretsManager()
+
+        # Load secrets securely
+        self.TWILIO_ACCOUNT_SID = secrets.get_secret("TWILIO_ACCOUNT_SID")
+        if not self.TWILIO_ACCOUNT_SID:
+            raise ConfigurationError("TWILIO_ACCOUNT_SID is required")
+
+        self.TWILIO_AUTH_TOKEN = secrets.get_secret("TWILIO_AUTH_TOKEN")
+        self.TWILIO_API_KEY = secrets.get_secret("TWILIO_API_KEY")
+        self.TWILIO_API_SECRET = secrets.get_secret("TWILIO_API_SECRET")
         self.TWILIO_PHONE_NUMBER = self._get_setting("TWILIO_PHONE_NUMBER")
         self.TWILIO_WEBHOOK_URL = self._get_setting("TWILIO_WEBHOOK_URL")
 

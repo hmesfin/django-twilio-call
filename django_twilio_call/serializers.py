@@ -1,16 +1,19 @@
-"""DRF serializers for django-twilio-call models."""
+"""DRF serializers for django-twilio-call models with enhanced validation."""
 
+import re
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from rest_framework import serializers
 
 from .models import Agent, Call, CallLog, CallRecording, PhoneNumber, Queue
-from .constants import DefaultValues
+from .constants import DefaultValues, Limits
+from .security import InputValidator
 
 User = get_user_model()
 
 
 class PhoneNumberSerializer(serializers.ModelSerializer):
-    """Serializer for PhoneNumber model."""
+    """Serializer for PhoneNumber model with validation."""
 
     class Meta:
         model = PhoneNumber
@@ -30,9 +33,30 @@ class PhoneNumberSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "public_id", "twilio_sid", "created_at", "updated_at"]
 
+    def validate_phone_number(self, value):
+        """Validate and normalize phone number."""
+        try:
+            return InputValidator.validate_phone_number(value)
+        except ValidationError as e:
+            raise serializers.ValidationError(str(e))
+
+    def validate_friendly_name(self, value):
+        """Sanitize friendly name to prevent XSS."""
+        if value:
+            return InputValidator.sanitize_input(value, 'friendly_name')
+        return value
+
+    def validate_monthly_cost(self, value):
+        """Validate monthly cost is reasonable."""
+        if value and value < 0:
+            raise serializers.ValidationError("Monthly cost cannot be negative")
+        if value and value > 1000:  # Max $1000 per month
+            raise serializers.ValidationError("Monthly cost exceeds maximum limit")
+        return value
+
 
 class QueueSerializer(serializers.ModelSerializer):
-    """Serializer for Queue model."""
+    """Serializer for Queue model with validation."""
 
     agent_count = serializers.IntegerField(read_only=True)
     active_calls_count = serializers.IntegerField(read_only=True)
@@ -61,6 +85,46 @@ class QueueSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "public_id", "created_at", "updated_at"]
 
+    def validate_name(self, value):
+        """Validate and sanitize queue name."""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Queue name is required")
+        if len(value) > 100:
+            raise serializers.ValidationError("Queue name too long (max 100 characters)")
+        # Sanitize to prevent injection
+        return InputValidator.sanitize_input(value, 'queue_name')
+
+    def validate_description(self, value):
+        """Sanitize description."""
+        if value:
+            return InputValidator.sanitize_input(value, 'description')
+        return value
+
+    def validate_max_size(self, value):
+        """Validate queue size limits."""
+        if value and value < 1:
+            raise serializers.ValidationError("Queue size must be at least 1")
+        if value and value > DefaultValues.MAX_QUEUE_SIZE:
+            raise serializers.ValidationError(f"Queue size exceeds limit ({DefaultValues.MAX_QUEUE_SIZE})")
+        return value
+
+    def validate_timeout_seconds(self, value):
+        """Validate timeout is reasonable."""
+        if value and value < 30:
+            raise serializers.ValidationError("Timeout must be at least 30 seconds")
+        if value and value > 3600:  # Max 1 hour
+            raise serializers.ValidationError("Timeout cannot exceed 1 hour")
+        return value
+
+    def validate_music_url(self, value):
+        """Validate music URL format."""
+        if value:
+            if not value.startswith(('http://', 'https://')):
+                raise serializers.ValidationError("Music URL must be a valid HTTP(S) URL")
+            if len(value) > 500:
+                raise serializers.ValidationError("Music URL too long")
+        return value
+
     def to_representation(self, instance):
         """Add computed fields to representation."""
         data = super().to_representation(instance)
@@ -81,7 +145,7 @@ class QueueSummarySerializer(serializers.ModelSerializer):
 
 
 class AgentSerializer(serializers.ModelSerializer):
-    """Serializer for Agent model."""
+    """Serializer for Agent model with enhanced validation."""
 
     user = serializers.SerializerMethodField()
     queues = QueueSummarySerializer(many=True, read_only=True)
@@ -138,6 +202,50 @@ class AgentSerializer(serializers.ModelSerializer):
             "full_name": obj.user.get_full_name(),
         }
 
+    def validate_extension(self, value):
+        """Validate agent extension."""
+        if value:
+            if not value.isdigit():
+                raise serializers.ValidationError("Extension must be numeric")
+            if len(value) < 3 or len(value) > 6:
+                raise serializers.ValidationError("Extension must be 3-6 digits")
+        return value
+
+    def validate_phone_number(self, value):
+        """Validate agent phone number."""
+        if value:
+            try:
+                return InputValidator.validate_phone_number(value)
+            except ValidationError as e:
+                raise serializers.ValidationError(str(e))
+        return value
+
+    def validate_max_concurrent_calls(self, value):
+        """Validate concurrent call limit."""
+        if value and value < 1:
+            raise serializers.ValidationError("Must handle at least 1 concurrent call")
+        if value and value > 10:  # Reasonable limit
+            raise serializers.ValidationError("Cannot handle more than 10 concurrent calls")
+        return value
+
+    def validate_skills(self, value):
+        """Validate and sanitize skills."""
+        if value:
+            # Ensure skills is a list
+            if not isinstance(value, list):
+                raise serializers.ValidationError("Skills must be a list")
+            # Sanitize each skill
+            sanitized_skills = []
+            for skill in value:
+                if not isinstance(skill, str):
+                    raise serializers.ValidationError("Each skill must be a string")
+                if len(skill) > 50:
+                    raise serializers.ValidationError("Skill name too long (max 50 characters)")
+                sanitized = InputValidator.sanitize_input(skill, 'skill')
+                sanitized_skills.append(sanitized)
+            return sanitized_skills
+        return value
+
 
 class AgentStatusUpdateSerializer(serializers.Serializer):
     """Serializer for updating agent status."""
@@ -146,7 +254,7 @@ class AgentStatusUpdateSerializer(serializers.Serializer):
 
 
 class CallSerializer(serializers.ModelSerializer):
-    """Serializer for Call model."""
+    """Serializer for Call model with comprehensive validation."""
 
     agent = AgentSerializer(read_only=True)
     queue = QueueSummarySerializer(read_only=True)
@@ -221,9 +329,65 @@ class CallSerializer(serializers.ModelSerializer):
         else:
             return f"{seconds}s"
 
+    def validate_from_number(self, value):
+        """Validate from phone number."""
+        if value:
+            try:
+                return InputValidator.validate_phone_number(value)
+            except ValidationError as e:
+                raise serializers.ValidationError(str(e))
+        return value
+
+    def validate_to_number(self, value):
+        """Validate to phone number."""
+        if value:
+            try:
+                return InputValidator.validate_phone_number(value)
+            except ValidationError as e:
+                raise serializers.ValidationError(str(e))
+        return value
+
+    def validate_caller_name(self, value):
+        """Sanitize caller name."""
+        if value:
+            if len(value) > 100:
+                raise serializers.ValidationError("Caller name too long (max 100 characters)")
+            return InputValidator.sanitize_input(value, 'caller_name')
+        return value
+
+    def validate_recording_url(self, value):
+        """Validate recording URL."""
+        if value:
+            if not value.startswith(('http://', 'https://')):
+                raise serializers.ValidationError("Recording URL must be a valid HTTP(S) URL")
+            if len(value) > 500:
+                raise serializers.ValidationError("Recording URL too long")
+        return value
+
+    def validate_metadata(self, value):
+        """Validate metadata JSON."""
+        if value:
+            # Ensure it's a dictionary
+            if not isinstance(value, dict):
+                raise serializers.ValidationError("Metadata must be a JSON object")
+            # Check size (prevent large payloads)
+            import json
+            json_str = json.dumps(value)
+            if len(json_str) > 10000:  # 10KB limit
+                raise serializers.ValidationError("Metadata too large (max 10KB)")
+            # Sanitize string values in metadata
+            sanitized = {}
+            for key, val in value.items():
+                if isinstance(val, str):
+                    sanitized[key] = InputValidator.sanitize_input(val, f'metadata_{key}')
+                else:
+                    sanitized[key] = val
+            return sanitized
+        return value
+
 
 class CallCreateSerializer(serializers.Serializer):
-    """Serializer for creating outbound calls."""
+    """Serializer for creating outbound calls with validation."""
 
     to_number = serializers.CharField(max_length=20)
     from_number = serializers.CharField(max_length=20, required=False)
@@ -244,10 +408,54 @@ class CallCreateSerializer(serializers.Serializer):
     timeout = serializers.IntegerField(min_value=1, max_value=600, default=DefaultValues.RECORDING_TIMEOUT, required=False)
     time_limit = serializers.IntegerField(min_value=1, max_value=14400, required=False)
 
+    def validate_to_number(self, value):
+        """Validate to phone number."""
+        try:
+            return InputValidator.validate_phone_number(value)
+        except ValidationError as e:
+            raise serializers.ValidationError(str(e))
+
+    def validate_from_number(self, value):
+        """Validate from phone number."""
+        if value:
+            try:
+                return InputValidator.validate_phone_number(value)
+            except ValidationError as e:
+                raise serializers.ValidationError(str(e))
+        return value
+
+    def validate_send_digits(self, value):
+        """Validate DTMF digits."""
+        if value:
+            if not re.match(r'^[0-9*#wW]+$', value):
+                raise serializers.ValidationError("Send digits can only contain 0-9, *, #, w, or W")
+        return value
+
+    def validate_twiml(self, value):
+        """Validate and sanitize TwiML."""
+        if value:
+            # Basic XML validation
+            if '<' in value and '>' in value:
+                # Check for potential script tags
+                if re.search(r'<script[^>]*>', value, re.IGNORECASE):
+                    raise serializers.ValidationError("Script tags not allowed in TwiML")
+                # Check for javascript: protocol
+                if 'javascript:' in value.lower():
+                    raise serializers.ValidationError("JavaScript protocol not allowed in TwiML")
+        return value
+
     def validate(self, attrs):
         """Validate call creation data."""
         if not attrs.get("url") and not attrs.get("twiml"):
             raise serializers.ValidationError("Either 'url' or 'twiml' must be provided for call instructions.")
+
+        # Validate metadata size
+        if attrs.get('metadata'):
+            import json
+            json_str = json.dumps(attrs['metadata'])
+            if len(json_str) > 10000:  # 10KB limit
+                raise serializers.ValidationError("Metadata too large (max 10KB)")
+
         return attrs
 
 

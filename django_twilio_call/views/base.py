@@ -18,6 +18,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -111,9 +112,10 @@ class ErrorHandlingMixin:
 
 
 class PermissionFilterMixin:
-    """Mixin to provide common permission-based filtering.
+    """Mixin to provide common permission-based filtering with IDOR protection.
 
     Handles filtering querysets based on user permissions and ownership.
+    Prevents Insecure Direct Object Reference (IDOR) vulnerabilities.
     """
 
     def filter_queryset_by_user(self, queryset: QuerySet) -> QuerySet:
@@ -136,20 +138,107 @@ class PermissionFilterMixin:
         if user.is_staff:
             return queryset
 
-        # Regular users see only their own data
-        if hasattr(queryset.model, "user"):
+        # Regular users see only their own data - enhanced filtering
+        model = queryset.model
+
+        # Check for direct user relationship
+        if hasattr(model, "user"):
             return queryset.filter(user=user)
 
-        # For agent-related models
-        if hasattr(queryset.model, "agent") and hasattr(user, "agent_profile"):
-            return queryset.filter(agent=user.agent_profile)
+        # Check for owner field
+        if hasattr(model, "owner"):
+            return queryset.filter(owner=user)
 
-        return queryset
+        # Check for created_by field
+        if hasattr(model, "created_by"):
+            return queryset.filter(created_by=user)
+
+        # For agent-related models
+        if hasattr(model, "agent"):
+            if hasattr(user, "agent_profile"):
+                # User is an agent - can see their own data
+                return queryset.filter(agent=user.agent_profile)
+            elif hasattr(user, "agent"):
+                return queryset.filter(agent=user.agent)
+            else:
+                # User is not an agent - no access to agent data
+                return queryset.none()
+
+        # For queue-related models
+        if hasattr(model, "queue") and hasattr(user, "agent_profile"):
+            # Filter by queues the agent has access to
+            agent = user.agent_profile
+            if hasattr(agent, "queues"):
+                return queryset.filter(queue__in=agent.queues.all())
+
+        # If no matching ownership field, return empty queryset for safety
+        logger.warning(f"No ownership filtering applied for {model.__name__} - returning empty queryset")
+        return queryset.none()
 
     def get_queryset(self) -> QuerySet:
         """Get filtered queryset based on permissions."""
         queryset = super().get_queryset()
         return self.filter_queryset_by_user(queryset)
+
+    def get_object(self):
+        """Get object with additional permission check to prevent IDOR."""
+        obj = super().get_object()
+
+        # Additional permission check
+        if not self.check_object_permissions(self.request, obj):
+            raise PermissionDenied("You do not have permission to access this object")
+
+        return obj
+
+    def check_object_permissions(self, request, obj) -> bool:
+        """Check if user has permission to access the specific object.
+
+        Args:
+            request: HTTP request
+            obj: Object to check permissions for
+
+        Returns:
+            bool: True if user has permission, False otherwise
+        """
+        user = request.user
+
+        # Superusers always have access
+        if user.is_superuser:
+            return True
+
+        # Staff users have access by default (can be overridden)
+        if user.is_staff:
+            return True
+
+        # Check ownership fields
+        ownership_fields = ['user', 'owner', 'created_by', 'agent']
+        for field in ownership_fields:
+            if hasattr(obj, field):
+                owner = getattr(obj, field)
+                if owner == user:
+                    return True
+                # Check if owner is an Agent model with user field
+                if hasattr(owner, 'user') and owner.user == user:
+                    return True
+
+        # Check if user's agent has access to queue-related objects
+        if hasattr(obj, 'queue') and hasattr(user, 'agent_profile'):
+            agent = user.agent_profile
+            if hasattr(agent, 'queues') and obj.queue in agent.queues.all():
+                return True
+
+        # Check if object is related to user's calls
+        if hasattr(obj, 'call'):
+            call = obj.call
+            if hasattr(call, 'agent') and hasattr(user, 'agent_profile'):
+                if call.agent == user.agent_profile:
+                    return True
+            if hasattr(call, 'user') and call.user == user:
+                return True
+
+        # No permission found
+        logger.warning(f"Access denied for user {user.username} to {obj.__class__.__name__} id={obj.pk}")
+        return False
 
 
 class BaseCallCenterViewSet(ErrorHandlingMixin, PermissionFilterMixin, viewsets.ModelViewSet):

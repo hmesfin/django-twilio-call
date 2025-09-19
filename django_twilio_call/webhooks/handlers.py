@@ -1,8 +1,10 @@
 """Webhook handlers for Twilio callbacks."""
 
 import logging
+import time
 from typing import Any, Dict, Optional
 
+from django.core.cache import cache
 from django.http import HttpResponse, HttpResponseForbidden
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -107,19 +109,59 @@ class BaseWebhookView(View):
     """Base class for Twilio webhook handlers."""
 
     def validate_request(self, request) -> bool:
-        """Validate webhook request from Twilio."""
+        """Validate webhook request from Twilio with replay attack prevention."""
         if not TWILIO_WEBHOOK_VALIDATE:
             return True
 
-        signature = request.META.get("HTTP_X_TWILIO_SIGNATURE", "")
-        url = request.build_absolute_uri()
-        params = request.POST.dict()
+        # Import security validator
+        from ..security import WebhookValidator
+        validator = WebhookValidator()
 
-        try:
-            return twilio_service.validate_webhook(url, params, signature)
-        except Exception as e:
-            logger.error(f"Webhook validation failed: {e}")
+        # Validate signature
+        if not validator.validate_request(request):
+            logger.warning(f"Invalid webhook signature from {request.META.get('REMOTE_ADDR')}")
             return False
+
+        # Validate timestamp to prevent replay attacks
+        if not validator.validate_timestamp(request, max_age=300):  # 5 minutes
+            logger.warning(f"Webhook timestamp validation failed from {request.META.get('REMOTE_ADDR')}")
+            return False
+
+        # Check for duplicate webhook (idempotency)
+        if not self._check_webhook_idempotency(request):
+            logger.warning(f"Duplicate webhook detected from {request.META.get('REMOTE_ADDR')}")
+            return False
+
+        return True
+
+    def _check_webhook_idempotency(self, request) -> bool:
+        """Check webhook idempotency to prevent duplicate processing.
+
+        Args:
+            request: HTTP request
+
+        Returns:
+            bool: True if webhook is unique, False if duplicate
+        """
+        # Generate idempotency key from webhook data
+        call_sid = request.POST.get('CallSid', '')
+        event_type = request.POST.get('CallStatus', '')
+        timestamp = request.POST.get('Timestamp', str(int(time.time())))
+
+        if not call_sid:
+            # If no CallSid, use request signature as key
+            call_sid = request.META.get('HTTP_X_TWILIO_SIGNATURE', 'unknown')
+
+        idempotency_key = f"webhook:idempotent:{call_sid}:{event_type}:{timestamp}"
+
+        # Check if this webhook was already processed
+        if cache.get(idempotency_key):
+            logger.info(f"Duplicate webhook ignored: {idempotency_key}")
+            return False
+
+        # Mark webhook as processed (keep for 1 hour)
+        cache.set(idempotency_key, True, 3600)
+        return True
 
     def parse_webhook_data(self, request) -> Dict[str, Any]:
         """Parse and validate webhook data."""
