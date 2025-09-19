@@ -3,7 +3,7 @@
 # ====================
 
 # Stage 1: Build dependencies
-FROM python:3.11-slim as builder
+FROM python:3.13-slim as builder
 
 # Set build environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -39,7 +39,7 @@ RUN pip install --upgrade pip setuptools wheel && \
     pip install -e .
 
 # Stage 2: Runtime image
-FROM python:3.11-slim as runtime
+FROM python:3.13-slim as runtime
 
 # Install runtime dependencies only
 RUN apt-get update && apt-get install -y \
