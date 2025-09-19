@@ -8,23 +8,28 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from .mixins import (
+    BaseCallCenterModel,
+    UUIDMixin,
+    TimestampMixin,
+    MetadataMixin,
+    StatusMixin,
+    SoftDeleteMixin,
+    PricingMixin,
+    TwilioSIDMixin,
+)
+
 User = get_user_model()
 
 # Import optimized managers after models are defined
 # This will be done at the end of the file to avoid circular imports
 
 
-class TimeStampedModel(models.Model):
-    """Abstract base model with timestamp fields."""
-
-    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
-    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
-
-    class Meta:
-        abstract = True
+# Backward compatibility alias
+TimeStampedModel = TimestampMixin
 
 
-class PhoneNumber(TimeStampedModel):
+class PhoneNumber(BaseCallCenterModel, TwilioSIDMixin, PricingMixin):
     """Model for managing Twilio phone numbers."""
 
     class NumberType(models.TextChoices):
@@ -34,14 +39,6 @@ class PhoneNumber(TimeStampedModel):
         TOLL_FREE = "toll_free", _("Toll Free")
         MOBILE = "mobile", _("Mobile")
         INTERNATIONAL = "international", _("International")
-
-    public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
-    twilio_sid = models.CharField(
-        _("Twilio SID"),
-        max_length=50,
-        unique=True,
-        help_text=_("Twilio Phone Number SID"),
-    )
     phone_number = models.CharField(
         _("phone number"),
         max_length=20,
@@ -73,12 +70,6 @@ class PhoneNumber(TimeStampedModel):
         null=True,
         blank=True,
     )
-    metadata = models.JSONField(
-        _("metadata"),
-        default=dict,
-        blank=True,
-        help_text=_("Additional metadata for the phone number"),
-    )
 
     class Meta:
         verbose_name = _("Phone Number")
@@ -93,7 +84,7 @@ class PhoneNumber(TimeStampedModel):
         return f"{self.friendly_name or self.phone_number}"
 
 
-class Queue(TimeStampedModel):
+class Queue(BaseCallCenterModel):
     """Model for call queues."""
 
     class RoutingStrategy(models.TextChoices):
@@ -104,8 +95,6 @@ class Queue(TimeStampedModel):
         ROUND_ROBIN = "round_robin", _("Round Robin")
         LEAST_BUSY = "least_busy", _("Least Busy Agent")
         SKILLS_BASED = "skills_based", _("Skills Based")
-
-    public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
     name = models.CharField(_("name"), max_length=100, unique=True)
     description = models.TextField(_("description"), blank=True)
     routing_strategy = models.CharField(
@@ -155,11 +144,6 @@ class Queue(TimeStampedModel):
         blank=True,
         help_text=_("Business hours configuration for the queue"),
     )
-    metadata = models.JSONField(
-        _("metadata"),
-        default=dict,
-        blank=True,
-    )
 
     class Meta:
         verbose_name = _("Queue")
@@ -174,7 +158,7 @@ class Queue(TimeStampedModel):
         return self.name
 
 
-class Agent(TimeStampedModel):
+class Agent(BaseCallCenterModel, StatusMixin):
     """Model for call center agents."""
 
     class Status(models.TextChoices):
@@ -186,7 +170,6 @@ class Agent(TimeStampedModel):
         AFTER_CALL_WORK = "after_call_work", _("After Call Work")
         OFFLINE = "offline", _("Offline")
 
-    public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
     user = models.OneToOneField(
         User,
         on_delete=models.CASCADE,
@@ -252,11 +235,6 @@ class Agent(TimeStampedModel):
         _("calls handled today"),
         default=0,
     )
-    metadata = models.JSONField(
-        _("metadata"),
-        default=dict,
-        blank=True,
-    )
 
     class Meta:
         verbose_name = _("Agent")
@@ -285,7 +263,7 @@ class Agent(TimeStampedModel):
         return self.status == self.Status.AVAILABLE and self.is_active
 
 
-class Call(TimeStampedModel):
+class Call(BaseCallCenterModel, TwilioSIDMixin, PricingMixin, StatusMixin):
     """Model for tracking calls."""
 
     class Direction(models.TextChoices):
@@ -306,13 +284,6 @@ class Call(TimeStampedModel):
         NO_ANSWER = "no-answer", _("No Answer")
         CANCELED = "canceled", _("Canceled")
 
-    public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
-    twilio_sid = models.CharField(
-        _("Twilio Call SID"),
-        max_length=50,
-        unique=True,
-        db_index=True,
-    )
     parent_call_sid = models.CharField(
         _("Parent Call SID"),
         max_length=50,
@@ -404,20 +375,6 @@ class Call(TimeStampedModel):
         default=0,
         help_text=_("Time spent in queue in seconds"),
     )
-    price = models.DecimalField(
-        _("price"),
-        max_digits=10,
-        decimal_places=4,
-        null=True,
-        blank=True,
-        help_text=_("Call cost in account currency"),
-    )
-    price_unit = models.CharField(
-        _("price unit"),
-        max_length=10,
-        blank=True,
-        default="USD",
-    )
     start_time = models.DateTimeField(
         _("start time"),
         null=True,
@@ -458,11 +415,6 @@ class Call(TimeStampedModel):
     callback_source = models.CharField(
         _("callback source"),
         max_length=20,
-        blank=True,
-    )
-    metadata = models.JSONField(
-        _("metadata"),
-        default=dict,
         blank=True,
     )
 
@@ -557,19 +509,6 @@ class CallRecording(TimeStampedModel):
         blank=True,
         help_text=_("File size in bytes"),
     )
-    price = models.DecimalField(
-        _("price"),
-        max_digits=10,
-        decimal_places=4,
-        null=True,
-        blank=True,
-    )
-    price_unit = models.CharField(
-        _("price unit"),
-        max_length=10,
-        blank=True,
-        default="USD",
-    )
     encryption_details = models.JSONField(
         _("encryption details"),
         default=dict,
@@ -582,16 +521,6 @@ class CallRecording(TimeStampedModel):
     transcription_status = models.CharField(
         _("transcription status"),
         max_length=20,
-        blank=True,
-    )
-    deleted_at = models.DateTimeField(
-        _("deleted at"),
-        null=True,
-        blank=True,
-    )
-    metadata = models.JSONField(
-        _("metadata"),
-        default=dict,
         blank=True,
     )
 
