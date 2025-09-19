@@ -8,6 +8,7 @@ from django.db import models, transaction
 from django.db.models import Count, F, Q
 from django.utils import timezone
 
+from .base import BaseService, log_execution
 from ..models import Agent, Call, CallLog, Queue
 
 logger = logging.getLogger(__name__)
@@ -133,7 +134,7 @@ class LoadBalancedRoutingStrategy(RoutingStrategy):
         return agents_with_capacity.order_by("-available_capacity", "last_status_change").first()
 
 
-class AdvancedRoutingService:
+class AdvancedRoutingService(BaseService):
     """Advanced routing service with multiple strategies."""
 
     ROUTING_STRATEGIES = {
@@ -145,10 +146,15 @@ class AdvancedRoutingService:
 
     def __init__(self):
         """Initialize routing service."""
+        super().__init__()
         self.strategies = self.ROUTING_STRATEGIES.copy()
         # Add custom strategies
         self.strategies["longest_idle"] = LongestIdleRoutingStrategy()
         self.strategies["priority_based"] = PriorityBasedRoutingStrategy()
+
+        # Import here to avoid circular import
+        from .agent_service import agent_service
+        self.agent_service = agent_service
         self.strategies["load_balanced"] = LoadBalancedRoutingStrategy()
 
     @transaction.atomic
@@ -178,8 +184,12 @@ class AdvancedRoutingService:
                 if agent:
                     return self._assign_call_to_agent(call, agent, queue)
 
-            # Get available agents
-            available_agents = self._get_available_agents(queue, required_skills)
+            # Get available agents from agent service (eliminates duplication)
+            available_agents = self.agent_service.get_available_agents_queryset(
+                queue=queue,
+                skills=required_skills,
+                business_hours_check=True
+            )
 
             if not available_agents.exists():
                 # Try overflow handling
@@ -202,43 +212,20 @@ class AdvancedRoutingService:
 
     def _try_preferred_agent(self, agent_id: int, queue: Queue) -> Optional[Agent]:
         """Try to get preferred agent if available."""
-        try:
-            agent = Agent.objects.get(id=agent_id, status=Agent.Status.AVAILABLE, is_active=True, queues=queue)
+        # Use agent service for consistent availability checking
+        availability = self.agent_service.check_agent_availability(
+            agent_id=agent_id,
+            queue=queue
+        )
 
-            # Check if agent has capacity
-            active_calls = Call.objects.filter(agent=agent, status=Call.Status.IN_PROGRESS).count()
-
-            if active_calls < agent.max_concurrent_calls:
-                return agent
-
-        except Agent.DoesNotExist:
-            pass
+        if availability.get("available", False):
+            try:
+                return Agent.objects.get(id=agent_id)
+            except Agent.DoesNotExist:
+                pass
 
         return None
 
-    def _get_available_agents(self, queue: Queue, required_skills: Optional[List[str]] = None) -> models.QuerySet:
-        """Get available agents for the queue."""
-        # Base query
-        agents = (
-            Agent.objects.filter(queues=queue, status=Agent.Status.AVAILABLE, is_active=True)
-            .annotate(current_calls_count=Count("calls", filter=Q(calls__status=Call.Status.IN_PROGRESS)))
-            .filter(current_calls_count__lt=F("max_concurrent_calls"))
-        )
-
-        # Apply skill filtering if required
-        skills_to_check = required_skills or queue.required_skills
-        if skills_to_check:
-            # Filter agents who have all required skills
-            for skill in skills_to_check:
-                agents = agents.filter(skills__contains=[skill])
-
-        # Apply business hours filtering if configured
-        if queue.business_hours:
-            if not self._is_within_business_hours(queue.business_hours):
-                # Only return on-call agents during off hours
-                agents = agents.filter(Q(skills__contains=["on_call"]) | Q(metadata__on_call=True))
-
-        return agents
 
     def _get_routing_strategy(self, queue: Queue) -> RoutingStrategy:
         """Get the appropriate routing strategy for the queue."""
@@ -319,26 +306,6 @@ class AdvancedRoutingService:
         # Default: keep in queue
         return None
 
-    def _is_within_business_hours(self, business_hours: Dict) -> bool:
-        """Check if current time is within business hours."""
-        now = timezone.now()
-        today = now.strftime("%A").lower()
-
-        if today not in business_hours:
-            return False
-
-        hours = business_hours[today]
-        if not hours or hours == "closed":
-            return False
-
-        if isinstance(hours, dict):
-            start = datetime.strptime(hours["start"], "%H:%M").time()
-            end = datetime.strptime(hours["end"], "%H:%M").time()
-            current_time = now.time()
-
-            return start <= current_time <= end
-
-        return True
 
     def get_queue_metrics(self, queue: Queue) -> Dict:
         """Get real-time queue metrics."""

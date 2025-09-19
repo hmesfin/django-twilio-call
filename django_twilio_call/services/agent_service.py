@@ -496,21 +496,169 @@ class AgentService:
             List of available Agent objects
 
         """
+        queryset = self.get_available_agents_queryset(queue_id=queue_id, skills=skills)
+        return list(queryset.order_by("last_status_change"))
+
+    def get_available_agents_queryset(
+        self,
+        queue: Optional['Queue'] = None,
+        queue_id: Optional[int] = None,
+        skills: Optional[List[str]] = None,
+        business_hours_check: bool = False,
+    ) -> models.QuerySet:
+        """Get QuerySet of available agents with flexible filtering.
+
+        Args:
+            queue: Queue object (takes precedence over queue_id)
+            queue_id: Optional queue filter by ID
+            skills: Optional required skills
+            business_hours_check: Whether to apply business hours filtering
+
+        Returns:
+            QuerySet of available Agent objects
+
+        """
+        # Base query for available agents with capacity
         agents = (
             Agent.objects.select_related("user")
             .filter(status=Agent.Status.AVAILABLE, is_active=True)
-            .annotate(active_calls=Count("calls", filter=Q(calls__status=Call.Status.IN_PROGRESS)))
-            .filter(active_calls__lt=F("max_concurrent_calls"))
+            .annotate(current_calls_count=Count("calls", filter=Q(calls__status=Call.Status.IN_PROGRESS)))
+            .filter(current_calls_count__lt=F("max_concurrent_calls"))
         )
 
-        if queue_id:
+        # Apply queue filtering
+        if queue:
+            agents = agents.filter(queues=queue)
+        elif queue_id:
             agents = agents.filter(queues__id=queue_id)
 
-        if skills:
-            for skill in skills:
+        # Apply skill filtering
+        skills_to_check = skills or (queue.required_skills if queue else [])
+        if skills_to_check:
+            # Filter agents who have all required skills
+            for skill in skills_to_check:
                 agents = agents.filter(skills__contains=[skill])
 
-        return list(agents.order_by("last_status_change"))
+        # Apply business hours filtering if configured
+        if business_hours_check and queue and queue.business_hours:
+            if not self._is_within_business_hours(queue.business_hours):
+                # Only return on-call agents during off hours
+                agents = agents.filter(Q(skills__contains=["on_call"]) | Q(metadata__on_call=True))
+
+        return agents
+
+    def _is_within_business_hours(self, business_hours: Dict) -> bool:
+        """Check if current time is within business hours.
+
+        Args:
+            business_hours: Business hours configuration
+
+        Returns:
+            True if within business hours
+        """
+        now = timezone.now()
+        current_time = now.time()
+        current_day = now.weekday()  # 0=Monday, 6=Sunday
+
+        # Get day name
+        day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        current_day_name = day_names[current_day]
+
+        # Check if current day is configured
+        if current_day_name not in business_hours:
+            return False
+
+        day_config = business_hours[current_day_name]
+        if not day_config.get('enabled', True):
+            return False
+
+        # Check time range
+        start_time = day_config.get('start_time', '09:00')
+        end_time = day_config.get('end_time', '17:00')
+
+        try:
+            from datetime import time
+            start = time.fromisoformat(start_time)
+            end = time.fromisoformat(end_time)
+            return start <= current_time <= end
+        except (ValueError, AttributeError):
+            # If time parsing fails, assume within business hours
+            return True
+
+    def check_agent_availability(
+        self,
+        agent_id: int,
+        queue: Optional['Queue'] = None,
+        required_skills: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Check detailed availability status for a specific agent.
+
+        Args:
+            agent_id: Agent ID to check
+            queue: Optional queue to check compatibility
+            required_skills: Optional required skills
+
+        Returns:
+            Dict with availability details
+
+        """
+        try:
+            agent = Agent.objects.select_related("user").get(id=agent_id)
+
+            # Basic availability checks
+            is_available = agent.status == Agent.Status.AVAILABLE and agent.is_active
+
+            # Check capacity
+            current_calls = Call.objects.filter(
+                agent=agent,
+                status=Call.Status.IN_PROGRESS
+            ).count()
+            has_capacity = current_calls < agent.max_concurrent_calls
+
+            # Check queue membership
+            queue_compatible = True
+            if queue:
+                queue_compatible = agent.queues.filter(id=queue.id).exists()
+
+            # Check skills
+            skills_compatible = True
+            skill_gaps = []
+            if required_skills:
+                agent_skills = set(agent.skills or [])
+                required_skills_set = set(required_skills)
+                skill_gaps = list(required_skills_set - agent_skills)
+                skills_compatible = len(skill_gaps) == 0
+
+            # Overall availability
+            overall_available = (
+                is_available and
+                has_capacity and
+                queue_compatible and
+                skills_compatible
+            )
+
+            return {
+                "agent_id": agent.id,
+                "agent_name": agent.user.get_full_name(),
+                "available": overall_available,
+                "details": {
+                    "status_available": is_available,
+                    "current_status": agent.status,
+                    "has_capacity": has_capacity,
+                    "current_calls": current_calls,
+                    "max_calls": agent.max_concurrent_calls,
+                    "queue_compatible": queue_compatible,
+                    "skills_compatible": skills_compatible,
+                    "skill_gaps": skill_gaps,
+                },
+            }
+
+        except Agent.DoesNotExist:
+            return {
+                "agent_id": agent_id,
+                "available": False,
+                "error": "Agent not found",
+            }
 
     def get_agents_summary(self) -> Dict:
         """Get summary of all agents.
