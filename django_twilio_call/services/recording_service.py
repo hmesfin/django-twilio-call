@@ -171,14 +171,12 @@ class RecordingService:
                 },
             )
 
-            # Download and store recording if configured
-            if self.storage_backend != "twilio":
-                self._store_recording(recording, recording_url)
+            # Schedule async processing instead of synchronous processing
+            if status == "completed":
+                from ..tasks import process_call_recording
+                process_call_recording.delay(recording.call.id, data)
 
-            # Apply compliance features
-            self._apply_compliance(recording)
-
-            logger.info(f"Processed recording {recording_sid}")
+            logger.info(f"Processed recording {recording_sid}, scheduled async processing")
             return recording
 
         except Exception as e:
@@ -368,6 +366,33 @@ class RecordingService:
         except CallRecording.DoesNotExist:
             logger.error(f"Recording {recording_id} not found")
             return None
+
+    def transcribe_recording_async(self, recording_id: int, language: str = "en-US") -> str:
+        """Schedule transcription of a recording asynchronously.
+
+        Args:
+            recording_id: Recording ID
+            language: Language code
+
+        Returns:
+            Task ID for the transcription job
+        """
+        from ..tasks import transcribe_recording
+
+        # Schedule async transcription
+        task = transcribe_recording.delay(recording_id, language)
+
+        # Update recording status to pending
+        try:
+            recording = CallRecording.objects.get(id=recording_id)
+            recording.transcription_status = "pending"
+            recording.metadata = recording.metadata or {}
+            recording.metadata['transcription_task_id'] = task.id
+            recording.save(update_fields=['transcription_status', 'metadata'])
+        except CallRecording.DoesNotExist:
+            logger.error(f"Recording {recording_id} not found")
+
+        return task.id
 
     def _perform_transcription(self, recording: CallRecording, language: str) -> str:
         """Perform actual transcription.

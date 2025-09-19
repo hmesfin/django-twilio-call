@@ -10,6 +10,9 @@ from django.utils.translation import gettext_lazy as _
 
 User = get_user_model()
 
+# Import optimized managers after models are defined
+# This will be done at the end of the file to avoid circular imports
+
 
 class TimeStampedModel(models.Model):
     """Abstract base model with timestamp fields."""
@@ -262,6 +265,15 @@ class Agent(TimeStampedModel):
         indexes = [
             models.Index(fields=["extension"]),
             models.Index(fields=["status", "is_active"]),
+            # Critical indexes for dashboard and routing queries
+            models.Index(fields=["is_active", "status", "last_status_change"]),
+            models.Index(fields=["status", "is_active", "max_concurrent_calls"]),
+            # Partial index for available agents (most frequently queried)
+            models.Index(
+                fields=["last_status_change"],
+                condition=models.Q(status="available", is_active=True),
+                name="idx_available_agents"
+            ),
         ]
 
     def __str__(self) -> str:
@@ -463,6 +475,29 @@ class Call(TimeStampedModel):
             models.Index(fields=["status", "direction"]),
             models.Index(fields=["from_number", "to_number"]),
             models.Index(fields=["created_at", "status"]),
+            # Critical performance indexes for call center operations
+            models.Index(fields=["agent", "status", "created_at"]),
+            models.Index(fields=["queue", "status", "created_at"]),
+            models.Index(fields=["status", "created_at"]),  # For active calls dashboard
+            # Composite indexes for analytics queries
+            models.Index(fields=["created_at", "direction", "status"]),
+            models.Index(fields=["agent", "created_at", "duration"]),
+            models.Index(fields=["queue", "created_at", "queue_time"]),
+            # Phone number lookup optimization
+            models.Index(fields=["from_number", "created_at"]),
+            models.Index(fields=["to_number", "created_at"]),
+            # Partial index for active calls (most performance-critical)
+            models.Index(
+                fields=["created_at"],
+                condition=models.Q(status__in=["queued", "ringing", "in-progress"]),
+                name="idx_active_calls"
+            ),
+            # Partial index for queue management
+            models.Index(
+                fields=["queue", "created_at"],
+                condition=models.Q(status="queued"),
+                name="idx_queued_calls"
+            ),
         ]
 
     def __str__(self) -> str:
@@ -643,6 +678,12 @@ class CallLog(TimeStampedModel):
         indexes = [
             models.Index(fields=["call", "event_type"]),
             models.Index(fields=["created_at"]),
+            # Optimized indexes for call tracking and analytics
+            models.Index(fields=["call", "created_at"]),
+            models.Index(fields=["event_type", "created_at"]),
+            models.Index(fields=["agent", "event_type", "created_at"]),
+            # Composite index for call timeline queries
+            models.Index(fields=["call", "event_type", "created_at"]),
         ]
 
     def __str__(self) -> str:
@@ -718,7 +759,275 @@ class AgentActivity(TimeStampedModel):
         indexes = [
             models.Index(fields=["agent", "activity_type"]),
             models.Index(fields=["created_at"]),
+            # Optimized indexes for agent performance tracking
+            models.Index(fields=["agent", "created_at"]),
+            models.Index(fields=["activity_type", "created_at"]),
+            models.Index(fields=["agent", "activity_type", "created_at"]),
+            # Index for agent status analysis queries
+            models.Index(fields=["agent", "from_status", "to_status", "created_at"]),
         ]
 
     def __str__(self) -> str:
         return f"{self.agent} - {self.activity_type} at {self.created_at}"
+
+
+class TaskExecution(TimeStampedModel):
+    """Model for tracking async task execution and performance."""
+
+    class Status(models.TextChoices):
+        """Task execution status choices."""
+
+        PENDING = "pending", _("Pending")
+        STARTED = "started", _("Started")
+        SUCCESS = "success", _("Success")
+        FAILURE = "failure", _("Failure")
+        RETRY = "retry", _("Retry")
+        REVOKED = "revoked", _("Revoked")
+
+    public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
+    task_id = models.CharField(
+        _("task ID"),
+        max_length=50,
+        unique=True,
+        db_index=True,
+        help_text=_("Celery task ID"),
+    )
+    task_name = models.CharField(
+        _("task name"),
+        max_length=255,
+        db_index=True,
+        help_text=_("Full task name"),
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    queue_name = models.CharField(
+        _("queue name"),
+        max_length=50,
+        db_index=True,
+        help_text=_("Celery queue name"),
+    )
+    worker_name = models.CharField(
+        _("worker name"),
+        max_length=100,
+        blank=True,
+        help_text=_("Worker hostname"),
+    )
+    retry_count = models.IntegerField(
+        _("retry count"),
+        default=0,
+        help_text=_("Number of retries attempted"),
+    )
+    duration_seconds = models.FloatField(
+        _("duration"),
+        null=True,
+        blank=True,
+        help_text=_("Task execution duration in seconds"),
+    )
+    started_at = models.DateTimeField(
+        _("started at"),
+        null=True,
+        blank=True,
+    )
+    completed_at = models.DateTimeField(
+        _("completed at"),
+        null=True,
+        blank=True,
+    )
+    args = models.JSONField(
+        _("arguments"),
+        default=list,
+        blank=True,
+        help_text=_("Task arguments"),
+    )
+    kwargs = models.JSONField(
+        _("keyword arguments"),
+        default=dict,
+        blank=True,
+        help_text=_("Task keyword arguments"),
+    )
+    result = models.JSONField(
+        _("result"),
+        null=True,
+        blank=True,
+        help_text=_("Task result or error information"),
+    )
+    progress = models.JSONField(
+        _("progress"),
+        default=dict,
+        blank=True,
+        help_text=_("Task progress information"),
+    )
+    metadata = models.JSONField(
+        _("metadata"),
+        default=dict,
+        blank=True,
+        help_text=_("Additional task metadata"),
+    )
+
+    class Meta:
+        verbose_name = _("Task Execution")
+        verbose_name_plural = _("Task Executions")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["task_id"]),
+            models.Index(fields=["task_name", "status"]),
+            models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["queue_name", "status"]),
+            models.Index(fields=["worker_name", "created_at"]),
+            # Performance analysis indexes
+            models.Index(fields=["task_name", "created_at", "duration_seconds"]),
+            models.Index(fields=["status", "retry_count", "created_at"]),
+            # Active tasks monitoring
+            models.Index(
+                fields=["created_at"],
+                condition=models.Q(status__in=["pending", "started"]),
+                name="idx_active_tasks"
+            ),
+            # Failed tasks analysis
+            models.Index(
+                fields=["task_name", "created_at"],
+                condition=models.Q(status="failure"),
+                name="idx_failed_tasks"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.task_name} ({self.task_id}) - {self.status}"
+
+    @property
+    def is_active(self) -> bool:
+        """Check if task is currently active."""
+        return self.status in [self.Status.PENDING, self.Status.STARTED]
+
+    @property
+    def is_completed(self) -> bool:
+        """Check if task is completed (success or failure)."""
+        return self.status in [self.Status.SUCCESS, self.Status.FAILURE, self.Status.REVOKED]
+
+
+class WebhookLog(TimeStampedModel):
+    """Model for tracking webhook delivery attempts and failures."""
+
+    class Status(models.TextChoices):
+        """Webhook status choices."""
+
+        PENDING = "pending", _("Pending")
+        DELIVERED = "delivered", _("Delivered")
+        FAILED = "failed", _("Failed")
+        RETRYING = "retrying", _("Retrying")
+        ABANDONED = "abandoned", _("Abandoned")
+
+    public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
+    webhook_type = models.CharField(
+        _("webhook type"),
+        max_length=50,
+        db_index=True,
+        help_text=_("Type of webhook (call-status, recording, etc.)"),
+    )
+    url = models.URLField(
+        _("webhook URL"),
+        help_text=_("Target URL for webhook delivery"),
+    )
+    payload = models.JSONField(
+        _("payload"),
+        help_text=_("Webhook payload data"),
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    http_status_code = models.IntegerField(
+        _("HTTP status code"),
+        null=True,
+        blank=True,
+    )
+    response_body = models.TextField(
+        _("response body"),
+        blank=True,
+    )
+    retry_count = models.IntegerField(
+        _("retry count"),
+        default=0,
+    )
+    next_retry_at = models.DateTimeField(
+        _("next retry at"),
+        null=True,
+        blank=True,
+    )
+    delivered_at = models.DateTimeField(
+        _("delivered at"),
+        null=True,
+        blank=True,
+    )
+    abandoned_at = models.DateTimeField(
+        _("abandoned at"),
+        null=True,
+        blank=True,
+    )
+    error_message = models.TextField(
+        _("error message"),
+        blank=True,
+    )
+    related_call = models.ForeignKey(
+        Call,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="webhook_logs",
+    )
+    metadata = models.JSONField(
+        _("metadata"),
+        default=dict,
+        blank=True,
+    )
+
+    class Meta:
+        verbose_name = _("Webhook Log")
+        verbose_name_plural = _("Webhook Logs")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["webhook_type", "status"]),
+            models.Index(fields=["status", "next_retry_at"]),
+            models.Index(fields=["related_call", "webhook_type"]),
+            models.Index(fields=["created_at", "status"]),
+            # Failed webhooks that need retry
+            models.Index(
+                fields=["next_retry_at"],
+                condition=models.Q(status__in=["failed", "retrying"]),
+                name="idx_retry_webhooks"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.webhook_type} webhook to {self.url} - {self.status}"
+
+
+# Add optimized managers to models
+# Import here to avoid circular imports
+try:
+    from .managers import (
+        AgentManager,
+        CallManager,
+        QueueManager,
+        CallLogManager,
+        AgentActivityManager,
+    )
+
+    # Add managers to models
+    Agent.add_to_class('optimized', AgentManager())
+    Call.add_to_class('optimized', CallManager())
+    Queue.add_to_class('optimized', QueueManager())
+    CallLog.add_to_class('optimized', CallLogManager())
+    AgentActivity.add_to_class('optimized', AgentActivityManager())
+
+except ImportError:
+    # Managers not available yet, will be added during app initialization
+    pass

@@ -21,6 +21,46 @@ class AnalyticsService:
         """Initialize analytics service."""
         self.cache_timeout = 300  # 5 minutes cache
 
+    def generate_report_async(self, report_type: str, **kwargs) -> str:
+        """Generate analytics report asynchronously.
+
+        Args:
+            report_type: Type of report (daily, weekly, monthly)
+            **kwargs: Report parameters
+
+        Returns:
+            Task ID for the report generation job
+        """
+        from ..tasks import generate_daily_report, generate_weekly_report, generate_monthly_report
+
+        if report_type == 'daily':
+            task = generate_daily_report.delay(kwargs.get('date_str'))
+        elif report_type == 'weekly':
+            task = generate_weekly_report.delay(kwargs.get('week_start_str'))
+        elif report_type == 'monthly':
+            task = generate_monthly_report.delay(kwargs.get('year'), kwargs.get('month'))
+        else:
+            raise ValueError(f"Unknown report type: {report_type}")
+
+        logger.info(f"Scheduled {report_type} report generation, task ID: {task.id}")
+        return task.id
+
+    def calculate_agent_metrics_async(self, agent_id: int, date_range: Optional[Dict] = None) -> str:
+        """Calculate agent metrics asynchronously.
+
+        Args:
+            agent_id: Agent ID
+            date_range: Optional date range
+
+        Returns:
+            Task ID for the calculation job
+        """
+        from ..tasks import calculate_agent_metrics
+
+        task = calculate_agent_metrics.delay(agent_id, date_range)
+        logger.info(f"Scheduled agent metrics calculation for agent {agent_id}, task ID: {task.id}")
+        return task.id
+
     def get_call_analytics(
         self,
         start_date: Optional[datetime] = None,
@@ -52,8 +92,12 @@ class AnalyticsService:
         if cached_data:
             return cached_data
 
-        # Base query
-        calls_query = Call.objects.filter(
+        # Base query with optimized select_related and prefetch_related
+        calls_query = Call.objects.select_related(
+            'agent__user',
+            'queue',
+            'phone_number_used'
+        ).filter(
             created_at__gte=start_date,
             created_at__lte=end_date,
         )
@@ -191,16 +235,21 @@ class AnalyticsService:
         if cached_data:
             return cached_data
 
+        # Optimize agent query with select_related and prefetch_related
         if agent_id:
-            agents = Agent.objects.filter(id=agent_id)
+            agents = Agent.objects.select_related('user').prefetch_related(
+                'calls__queue'
+            ).filter(id=agent_id)
         else:
-            agents = Agent.objects.filter(is_active=True)
+            agents = Agent.objects.select_related('user').prefetch_related(
+                'calls__queue'
+            ).filter(is_active=True)
 
         agent_metrics = []
 
         for agent in agents:
-            # Get agent's calls
-            agent_calls = Call.objects.filter(
+            # Get agent's calls with optimized query - use prefetched data when possible
+            agent_calls = Call.objects.select_related('queue').filter(
                 agent=agent,
                 created_at__gte=start_date,
                 created_at__lte=end_date,
@@ -234,7 +283,7 @@ class AnalyticsService:
 
             agent_metrics.append({
                 "agent_id": agent.id,
-                "agent_name": f"{agent.first_name} {agent.last_name}",
+                "agent_name": agent.user.get_full_name(),  # Use select_related user
                 "extension": agent.extension,
                 "calls": {
                     "total": total_calls,
@@ -307,10 +356,11 @@ class AnalyticsService:
         if cached_data:
             return cached_data
 
+        # Optimize queue query with prefetch_related for agents
         if queue_id:
-            queues = Queue.objects.filter(id=queue_id)
+            queues = Queue.objects.prefetch_related('agents__user').filter(id=queue_id)
         else:
-            queues = Queue.objects.filter(is_active=True)
+            queues = Queue.objects.prefetch_related('agents__user').filter(is_active=True)
 
         queue_metrics = []
 
@@ -417,29 +467,28 @@ class AnalyticsService:
         if cached_data:
             return cached_data
 
-        # Current calls
-        active_calls = Call.objects.filter(
-            status=Call.Status.IN_PROGRESS
-        ).count()
+        # Optimize with bulk queries using aggregation
+        from django.db.models import Case, When, IntegerField
 
-        queued_calls = Call.objects.filter(
-            status=Call.Status.QUEUED
-        ).count()
+        # Current calls with single query
+        call_status_counts = Call.objects.aggregate(
+            active_calls=Count('id', filter=Q(status=Call.Status.IN_PROGRESS)),
+            queued_calls=Count('id', filter=Q(status=Call.Status.QUEUED))
+        )
+        active_calls = call_status_counts['active_calls']
+        queued_calls = call_status_counts['queued_calls']
 
-        # Agent status
-        total_agents = Agent.objects.filter(is_active=True).count()
-        available_agents = Agent.objects.filter(
-            status=Agent.Status.AVAILABLE,
-            is_active=True,
-        ).count()
-        busy_agents = Agent.objects.filter(
-            status=Agent.Status.BUSY,
-            is_active=True,
-        ).count()
-        on_break_agents = Agent.objects.filter(
-            status=Agent.Status.ON_BREAK,
-            is_active=True,
-        ).count()
+        # Agent status with single query
+        agent_status_counts = Agent.objects.filter(is_active=True).aggregate(
+            total_agents=Count('id'),
+            available_agents=Count('id', filter=Q(status=Agent.Status.AVAILABLE)),
+            busy_agents=Count('id', filter=Q(status=Agent.Status.BUSY)),
+            on_break_agents=Count('id', filter=Q(status=Agent.Status.ON_BREAK))
+        )
+        total_agents = agent_status_counts['total_agents']
+        available_agents = agent_status_counts['available_agents']
+        busy_agents = agent_status_counts['busy_agents']
+        on_break_agents = agent_status_counts['on_break_agents']
 
         # Queue metrics
         longest_wait = Call.objects.filter(
@@ -450,26 +499,16 @@ class AnalyticsService:
             )
         )["max_wait"]
 
-        # Today's statistics
+        # Today's statistics with optimized single query
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        today_calls = Call.objects.filter(
+        today_stats = Call.objects.filter(
             created_at__gte=today_start
-        )
-
-        today_completed = today_calls.filter(
-            status=Call.Status.COMPLETED
-        ).count()
-
-        today_abandoned = today_calls.filter(
-            status=Call.Status.ABANDONED
-        ).count()
-
-        # Average metrics for today
-        today_metrics = today_calls.filter(
-            status=Call.Status.COMPLETED
         ).aggregate(
-            avg_duration=Avg("duration"),
-            avg_queue_time=Avg("queue_time"),
+            total_calls=Count('id'),
+            completed_calls=Count('id', filter=Q(status=Call.Status.COMPLETED)),
+            abandoned_calls=Count('id', filter=Q(status=Call.Status.ABANDONED)),
+            avg_duration=Avg('duration', filter=Q(status=Call.Status.COMPLETED)),
+            avg_queue_time=Avg('queue_time', filter=Q(status=Call.Status.COMPLETED))
         )
 
         metrics = {
@@ -487,11 +526,11 @@ class AnalyticsService:
                 "offline": total_agents - (available_agents + busy_agents + on_break_agents),
             },
             "today_summary": {
-                "total_calls": today_calls.count(),
-                "completed": today_completed,
-                "abandoned": today_abandoned,
-                "avg_duration": round(today_metrics["avg_duration"] or 0, 2),
-                "avg_queue_time": round(today_metrics["avg_queue_time"] or 0, 2),
+                "total_calls": today_stats["total_calls"],
+                "completed": today_stats["completed_calls"],
+                "abandoned": today_stats["abandoned_calls"],
+                "avg_duration": round(today_stats["avg_duration"] or 0, 2),
+                "avg_queue_time": round(today_stats["avg_queue_time"] or 0, 2),
             },
         }
 

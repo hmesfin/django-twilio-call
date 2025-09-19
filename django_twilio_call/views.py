@@ -104,7 +104,7 @@ class QueueViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """Filter queryset based on user permissions."""
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().prefetch_related("agents__user")
 
         # Non-admins only see active queues they're assigned to
         if not self.request.user.is_staff:
@@ -204,7 +204,7 @@ class AgentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """Filter queryset based on user permissions."""
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().select_related("user").prefetch_related("queues")
 
         # Non-admins only see their own profile
         if not self.request.user.is_staff:
@@ -467,7 +467,14 @@ class CallViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """Filter queryset based on user permissions."""
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().select_related(
+            "agent__user",
+            "queue",
+            "phone_number_used"
+        ).prefetch_related(
+            "recordings",
+            "logs"
+        )
 
         # Non-admins only see calls they're involved in
         if not self.request.user.is_staff:

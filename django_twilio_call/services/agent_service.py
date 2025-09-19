@@ -386,7 +386,16 @@ class AgentService:
 
         """
         try:
-            agent = Agent.objects.get(id=agent_id)
+            agent = Agent.objects.select_related("user").prefetch_related(
+                "queues",
+                Prefetch(
+                    "calls",
+                    queryset=Call.objects.filter(
+                        status__in=["queued", "ringing", "in-progress"]
+                    ).select_related("queue"),
+                    to_attr="active_calls_list"
+                )
+            ).get(id=agent_id)
 
             # Get current status info
             dashboard = {
@@ -488,7 +497,8 @@ class AgentService:
 
         """
         agents = (
-            Agent.objects.filter(status=Agent.Status.AVAILABLE, is_active=True)
+            Agent.objects.select_related("user")
+            .filter(status=Agent.Status.AVAILABLE, is_active=True)
             .annotate(active_calls=Count("calls", filter=Q(calls__status=Call.Status.IN_PROGRESS)))
             .filter(active_calls__lt=F("max_concurrent_calls"))
         )

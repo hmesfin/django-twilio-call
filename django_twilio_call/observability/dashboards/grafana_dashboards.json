@@ -1,0 +1,519 @@
+{
+  "call_center_operations": {
+    "dashboard": {
+      "id": null,
+      "title": "Call Center Operations Dashboard",
+      "tags": ["call-center", "twilio", "operations"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 27,
+      "version": 1,
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Service Level Agreement",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "callcenter_service_level_percentage",
+              "legendFormat": "{{queue}} ({{threshold_seconds}}s)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "steps": [
+                  {"color": "red", "value": 0},
+                  {"color": "yellow", "value": 70},
+                  {"color": "green", "value": 85}
+                ]
+              }
+            }
+          },
+          "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+        },
+        {
+          "id": 2,
+          "title": "Abandonment Rate",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "callcenter_abandonment_rate_percentage",
+              "legendFormat": "{{queue}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "steps": [
+                  {"color": "green", "value": 0},
+                  {"color": "yellow", "value": 5},
+                  {"color": "red", "value": 10}
+                ]
+              }
+            }
+          },
+          "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+        },
+        {
+          "id": 3,
+          "title": "Queue Depth",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "callcenter_current_queue_depth",
+              "legendFormat": "{{queue}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "thresholds": {
+                "steps": [
+                  {"color": "green", "value": 0},
+                  {"color": "yellow", "value": 5},
+                  {"color": "red", "value": 15}
+                ]
+              }
+            }
+          },
+          "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+        },
+        {
+          "id": 4,
+          "title": "Agent Utilization",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "avg(callcenter_agent_utilization_percentage)",
+              "legendFormat": "Average Utilization",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "steps": [
+                  {"color": "red", "value": 0},
+                  {"color": "yellow", "value": 40},
+                  {"color": "green", "value": 60},
+                  {"color": "yellow", "value": 85},
+                  {"color": "red", "value": 95}
+                ]
+              }
+            }
+          },
+          "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+        },
+        {
+          "id": 5,
+          "title": "Calls Per Minute",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "rate(callcenter_calls_handled_total[1m]) * 60",
+              "legendFormat": "{{queue}} - {{direction}}",
+              "refId": "A"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Calls/min",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+        },
+        {
+          "id": 6,
+          "title": "Average Wait Time",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "callcenter_average_wait_time_seconds",
+              "legendFormat": "{{queue}}",
+              "refId": "A"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Seconds",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+        },
+        {
+          "id": 7,
+          "title": "Agent Status Distribution",
+          "type": "piechart",
+          "targets": [
+            {
+              "expr": "sum by (status) (callcenter_agent_status)",
+              "legendFormat": "{{status}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16}
+        },
+        {
+          "id": 8,
+          "title": "Queue Performance Heatmap",
+          "type": "heatmap",
+          "targets": [
+            {
+              "expr": "callcenter_average_wait_time_seconds",
+              "legendFormat": "{{queue}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 16, "x": 8, "y": 16}
+        }
+      ]
+    }
+  },
+  "application_performance": {
+    "dashboard": {
+      "id": null,
+      "title": "Application Performance Dashboard",
+      "tags": ["django", "performance", "api"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 27,
+      "version": 1,
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Request Rate",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "rate(django_requests_total[5m])",
+              "legendFormat": "{{method}} {{endpoint}}",
+              "refId": "A"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Requests/sec",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+        },
+        {
+          "id": 2,
+          "title": "Response Time Percentiles",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(django_request_duration_seconds_bucket[5m]))",
+              "legendFormat": "95th percentile",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.50, rate(django_request_duration_seconds_bucket[5m]))",
+              "legendFormat": "50th percentile",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, rate(django_request_duration_seconds_bucket[5m]))",
+              "legendFormat": "99th percentile",
+              "refId": "C"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Seconds",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+        },
+        {
+          "id": 3,
+          "title": "Error Rate",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "rate(django_requests_total{status_code=~\"4..|5..\"}[5m]) / rate(django_requests_total[5m]) * 100",
+              "legendFormat": "Error Rate %",
+              "refId": "A"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Percentage",
+              "min": 0,
+              "max": 100
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+        },
+        {
+          "id": 4,
+          "title": "Database Queries per Request",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(django_db_queries_per_request_bucket[5m]))",
+              "legendFormat": "95th percentile",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.50, rate(django_db_queries_per_request_bucket[5m]))",
+              "legendFormat": "50th percentile",
+              "refId": "B"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Queries",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+        }
+      ]
+    }
+  },
+  "celery_monitoring": {
+    "dashboard": {
+      "id": null,
+      "title": "Celery Task Monitoring",
+      "tags": ["celery", "tasks", "background"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 27,
+      "version": 1,
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Task Execution Rate",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "rate(celery_tasks_total[5m])",
+              "legendFormat": "{{task_name}} - {{status}}",
+              "refId": "A"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Tasks/sec",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+        },
+        {
+          "id": 2,
+          "title": "Task Duration",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(celery_task_duration_seconds_bucket[5m]))",
+              "legendFormat": "{{task_name}} - 95th percentile",
+              "refId": "A"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Seconds",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+        },
+        {
+          "id": 3,
+          "title": "Queue Length",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "celery_queue_length",
+              "legendFormat": "{{queue_name}}",
+              "refId": "A"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Tasks",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+        },
+        {
+          "id": 4,
+          "title": "Worker Status",
+          "type": "table",
+          "targets": [
+            {
+              "expr": "celery_workers_online",
+              "legendFormat": "{{worker_name}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+        }
+      ]
+    }
+  },
+  "twilio_integration": {
+    "dashboard": {
+      "id": null,
+      "title": "Twilio Integration Monitoring",
+      "tags": ["twilio", "api", "webhooks"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "schemaVersion": 27,
+      "version": 1,
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Twilio API Call Rate",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "rate(twilio_api_calls_total[5m])",
+              "legendFormat": "{{endpoint}} - {{method}}",
+              "refId": "A"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Calls/sec",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+        },
+        {
+          "id": 2,
+          "title": "API Response Time",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(twilio_api_call_duration_seconds_bucket[5m]))",
+              "legendFormat": "{{endpoint}} - 95th percentile",
+              "refId": "A"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Seconds",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+        },
+        {
+          "id": 3,
+          "title": "API Error Rate",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "rate(twilio_api_errors_total[5m])",
+              "legendFormat": "{{endpoint}} - {{error_type}}",
+              "refId": "A"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Errors/sec",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+        },
+        {
+          "id": 4,
+          "title": "Webhook Processing",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "rate(twilio_webhook_delivery_attempts_total[5m])",
+              "legendFormat": "{{webhook_type}} - {{status}}",
+              "refId": "A"
+            }
+          ],
+          "yAxes": [
+            {
+              "label": "Webhooks/sec",
+              "min": 0
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+        },
+        {
+          "id": 5,
+          "title": "Active Calls",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "twilio_active_calls",
+              "legendFormat": "Active Calls",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0
+            }
+          },
+          "gridPos": {"h": 8, "w": 6, "x": 0, "y": 16}
+        },
+        {
+          "id": 6,
+          "title": "Monthly Usage Cost",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "sum(twilio_monthly_usage_dollars)",
+              "legendFormat": "Total Cost",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "min": 0
+            }
+          },
+          "gridPos": {"h": 8, "w": 6, "x": 6, "y": 16}
+        }
+      ]
+    }
+  }
+}
